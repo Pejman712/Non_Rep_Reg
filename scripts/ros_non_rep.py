@@ -3,50 +3,30 @@
 ROS2 Non-Repetitive LiDAR Processor (PointCloud2 -> Open3D) + Live Open3D visualization
 WITH ALL PARAMETERS LOADED FROM A YAML CONFIG FILE (ROS2 params).
 
-MODIFIED: Publishes
-  - LiDAR odometry (nav_msgs/Odometry)
-  - Map pointcloud (sensor_msgs/PointCloud2) INCLUDING INTENSITY (x,y,z,intensity)
+MODIFIED:
+  - Publishes
+      * LiDAR odometry (nav_msgs/Odometry)
+      * Map pointcloud (sensor_msgs/PointCloud2) INCLUDING INTENSITY (x,y,z,intensity)
+      * Optional TF map->odom and odom->base_link
   - Visualizes intensity as grayscale colors in Open3D (latest + map)
-  - (Optional) TF map->odom and odom->base_link
+  - Uses IMU values for sensor fusion AFTER registration
+      * LiDAR registration remains primary pose source
+      * IMU is fused mainly into yaw
+      * IMU can also slightly forward-propagate yaw using gyro z
 
 Run:
   ros2 run <your_pkg> ros_non_rep.py --ros-args --params-file config/non_rep_lidar.yaml
 
-Example YAML:
+Example YAML additions:
   non_rep_lidar:
     ros__parameters:
       lidar_topic: "/points"
-      queue_size: 10
-      step_decimation: 5
-      max_scans: -1
-      accumulate_between_decimation: true
-      accumulate_voxel: 0.10
-      accumulate_max_points: 1500000
-      force_z_zero: true
-      z_redistribution_method: "prediction"
-      fixed_weights: false
-      feature_weight: 0.3
-      geometric_weight: 0.4
-      temporal_weight: 0.3
-      freeze_adaptation: false
-      visualize: true
-      map_voxel: 0.15
-      use_pctools_gicp: true
-      gicp_max_corr_distance: 2.0
-      gicp_voxel_size: 0.2
-      gicp_max_iterations: 50
-
-      publish_odom: true
-      odom_topic: "/lidar/odom"
-      publish_map: true
-      map_topic: "/lidar/map"
-      publish_tf: false
-      map_frame: "map"
-      odom_frame: "odom"
-      base_frame: "base_link"
-      map_publish_voxel: 0.15
-      map_publish_max_points: 800000
-      map_publish_every_n_scans: 1
+      imu_topic: "/imu/data"
+      use_imu_fusion: true
+      imu_yaw_weight: 0.25
+      imu_timeout_sec: 0.2
+      use_imu_orientation: true
+      use_imu_angular_velocity: true
 """
 
 import time
@@ -61,7 +41,7 @@ from sklearn.decomposition import PCA
 # ROS2
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import PointCloud2, PointField
+from sensor_msgs.msg import PointCloud2, PointField, Imu
 from sensor_msgs_py import point_cloud2 as pc2
 
 from std_msgs.msg import Header
@@ -82,7 +62,7 @@ class ScanState:
 
 
 # =========================
-# Processor (your algorithm; kept as-is logically)
+# Processor
 # =========================
 class NonRepetitiveLiDARProcessor:
     def __init__(self,
@@ -333,7 +313,9 @@ class NonRepetitiveLiDARProcessor:
         total_w = 0.0
         weighted = np.zeros(4, dtype=float)
         for pose, conf, strat in preds:
-            strat_w = self.feature_weight if strat == "feature" else (self.geometric_weight if strat == "geometric" else self.temporal_weight)
+            strat_w = self.feature_weight if strat == "feature" else (
+                self.geometric_weight if strat == "geometric" else self.temporal_weight
+            )
             w = float(conf) * float(strat_w)
             weighted += w * pose
             total_w += w
@@ -424,6 +406,27 @@ def yaw_to_quat(yaw: float):
     return 0.0, 0.0, float(np.sin(half)), float(np.cos(half))
 
 
+def ros_time_to_sec(stamp) -> float:
+    return float(stamp.sec) + float(stamp.nanosec) * 1e-9
+
+
+def wrap_angle(a: float) -> float:
+    return float(np.arctan2(np.sin(a), np.cos(a)))
+
+
+def fuse_angles(a: float, b: float, wb: float) -> float:
+    wa = 1.0 - float(wb)
+    x = wa * np.cos(a) + float(wb) * np.cos(b)
+    y = wa * np.sin(a) + float(wb) * np.sin(b)
+    return float(np.arctan2(y, x))
+
+
+def quat_to_yaw_xyzw(x: float, y: float, z: float, w: float) -> float:
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    return float(np.arctan2(siny_cosp, cosy_cosp))
+
+
 def estimate_registration_confidence(cloud1, cloud2, transformation, sample_size=100):
     try:
         pts1 = np.asarray(cloud1.points)
@@ -449,8 +452,6 @@ def estimate_registration_confidence(cloud1, cloud2, transformation, sample_size
 def _normalize_intensity(intensity: np.ndarray) -> np.ndarray:
     """
     Convert arbitrary intensity scale into [0,1] float for Open3D colors and publishing.
-    - If already mostly in [0,1], keep.
-    - Otherwise scale by max (robust).
     """
     if intensity.size == 0:
         return intensity.astype(np.float32, copy=False)
@@ -460,18 +461,16 @@ def _normalize_intensity(intensity: np.ndarray) -> np.ndarray:
     if m <= 0.0:
         return np.zeros_like(inten, dtype=np.float32)
 
-    # Heuristic: if max is <= ~1.5 we assume already normalized
     if m <= 1.5:
         out = np.clip(inten, 0.0, 1.0)
         return out.astype(np.float32, copy=False)
 
-    # Otherwise scale by max to [0,1]
     out = np.clip(inten / m, 0.0, 1.0)
     return out.astype(np.float32, copy=False)
 
 
 # =========================
-# ROS2 <-> Open3D conversion (NOW WITH INTENSITY)
+# ROS2 <-> Open3D conversion
 # =========================
 def pointcloud2_to_xyz_i(msg: PointCloud2) -> Tuple[np.ndarray, np.ndarray]:
     field_names = [f.name for f in msg.fields]
@@ -503,7 +502,6 @@ def xyzi_to_open3d_cloud(xyz: np.ndarray, intensity: np.ndarray) -> o3d.geometry
 
     cloud.points = o3d.utility.Vector3dVector(xyz.astype(np.float64, copy=False))
 
-    # Visualize intensity as grayscale colors
     inten01 = _normalize_intensity(intensity)
     if inten01.size == xyz.shape[0]:
         colors = np.stack([inten01, inten01, inten01], axis=1).astype(np.float64, copy=False)
@@ -525,7 +523,7 @@ def open3d_cloud_to_pointcloud2_xyzi(cloud: o3d.geometry.PointCloud, header: Hea
 
     if cloud.has_colors():
         cols = np.asarray(cloud.colors)
-        intensity = cols[:, 0].astype(np.float32, copy=False)  # grayscale encoding
+        intensity = cols[:, 0].astype(np.float32, copy=False)
     else:
         intensity = np.zeros((pts.shape[0],), dtype=np.float32)
 
@@ -623,6 +621,14 @@ class NonRepetitiveLiDARRos2Node(Node):
         self.lidar_topic = str(p("lidar_topic", "/points"))
         self.queue_size = int(p("queue_size", 10))
 
+        # ---- IMU fusion params
+        self.use_imu_fusion = bool(p("use_imu_fusion", True))
+        self.imu_topic = str(p("imu_topic", "/imu/data"))
+        self.imu_yaw_weight = float(p("imu_yaw_weight", 0.25))
+        self.imu_timeout_sec = float(p("imu_timeout_sec", 0.2))
+        self.use_imu_orientation = bool(p("use_imu_orientation", True))
+        self.use_imu_angular_velocity = bool(p("use_imu_angular_velocity", True))
+
         # ---- Publishing params
         self.publish_odom = bool(p("publish_odom", True))
         self.odom_topic = str(p("odom_topic", "/lidar/odom"))
@@ -694,6 +700,18 @@ class NonRepetitiveLiDARRos2Node(Node):
         self.msg_counter = 0
         self.scan_counter = 0
 
+        # ---- IMU state
+        self.latest_imu_msg: Optional[Imu] = None
+        self.latest_imu_stamp_sec: Optional[float] = None
+
+        self.imu_initialized = False
+        self.imu_yaw0: float = 0.0
+        self.latest_imu_rel_yaw: float = 0.0
+        self.latest_imu_wz: float = 0.0
+
+        self.last_fused_stamp_sec: Optional[float] = None
+        self.last_fused_yaw: Optional[float] = None
+
         self.viewer = LiveOpen3D(
             window_name="Non-Repetitive LiDAR Map (Intensity, Z=0)" if self.force_z_zero else "Non-Repetitive LiDAR Map (Intensity)"
         ) if self.visualize else None
@@ -703,11 +721,15 @@ class NonRepetitiveLiDARRos2Node(Node):
         self.map_pub = self.create_publisher(PointCloud2, self.map_topic, 1) if self.publish_map else None
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self) if self.publish_tf else None
 
-        # Subscriber
+        # ---- Subscribers
         self.sub = self.create_subscription(PointCloud2, self.lidar_topic, self.cb_cloud, self.queue_size)
+        self.imu_sub = self.create_subscription(Imu, self.imu_topic, self.cb_imu, self.queue_size) \
+            if self.use_imu_fusion else None
 
-        self.get_logger().info("=== Non-Rep LiDAR ROS2 Node (Intensity Map) ===")
-        self.get_logger().info(f"topic={self.lidar_topic} queue={self.queue_size}")
+        self.get_logger().info("=== Non-Rep LiDAR ROS2 Node (Intensity Map + IMU Fusion) ===")
+        self.get_logger().info(f"lidar_topic={self.lidar_topic} queue={self.queue_size}")
+        if self.use_imu_fusion:
+            self.get_logger().info(f"imu_topic={self.imu_topic} imu_yaw_weight={self.imu_yaw_weight}")
         self.get_logger().info(f"publish_map={self.publish_map} map_topic={self.map_topic} (x,y,z,intensity)")
 
     def _resolve_gicp(self):
@@ -727,6 +749,71 @@ class NonRepetitiveLiDARRos2Node(Node):
                 max_iterations=self.gicp_max_iterations
             )
         return _gicp
+
+    def cb_imu(self, msg: Imu):
+        stamp_sec = ros_time_to_sec(msg.header.stamp)
+
+        self.latest_imu_msg = msg
+        self.latest_imu_stamp_sec = stamp_sec
+
+        if self.use_imu_orientation:
+            q = msg.orientation
+            yaw = quat_to_yaw_xyzw(q.x, q.y, q.z, q.w)
+
+            if not self.imu_initialized:
+                self.imu_yaw0 = yaw
+                self.latest_imu_rel_yaw = 0.0
+                self.imu_initialized = True
+            else:
+                self.latest_imu_rel_yaw = wrap_angle(yaw - self.imu_yaw0)
+
+        self.latest_imu_wz = float(msg.angular_velocity.z)
+
+    def _imu_is_fresh(self, stamp_sec: float) -> bool:
+        if self.latest_imu_stamp_sec is None:
+            return False
+        return abs(stamp_sec - self.latest_imu_stamp_sec) <= self.imu_timeout_sec
+
+    def _get_imu_yaw_for_stamp(self, stamp_sec: float) -> Optional[float]:
+        if not self.use_imu_fusion:
+            return None
+        if not self.imu_initialized:
+            return None
+        if not self._imu_is_fresh(stamp_sec):
+            return None
+
+        imu_yaw = self.latest_imu_rel_yaw
+
+        # Small forward propagation with gyro z from last received IMU time to LiDAR stamp
+        if self.use_imu_angular_velocity and self.latest_imu_stamp_sec is not None:
+            dt = max(0.0, stamp_sec - self.latest_imu_stamp_sec)
+            imu_yaw = wrap_angle(imu_yaw + self.latest_imu_wz * dt)
+
+        return imu_yaw
+
+    def _compute_adaptive_imu_yaw_weight(self) -> float:
+        w = float(np.clip(self.imu_yaw_weight, 0.0, 1.0))
+
+        if self.latest_imu_msg is None:
+            return w
+
+        cov = self.latest_imu_msg.orientation_covariance[8]
+        if np.isfinite(cov) and cov >= 0.0:
+            w = w / (1.0 + min(float(cov), 10.0))
+
+        return float(np.clip(w, 0.0, 1.0))
+
+    def _fuse_pose_with_imu(self, reg_pose: np.ndarray, stamp) -> np.ndarray:
+        fused = reg_pose.copy()
+        stamp_sec = ros_time_to_sec(stamp)
+
+        imu_yaw = self._get_imu_yaw_for_stamp(stamp_sec)
+        if imu_yaw is None:
+            return fused
+
+        w = self._compute_adaptive_imu_yaw_weight()
+        fused[3] = fuse_angles(float(reg_pose[3]), float(imu_yaw), w)
+        return fused
 
     def _flush_or_buffer(self, cloud_raw: o3d.geometry.PointCloud) -> Optional[o3d.geometry.PointCloud]:
         if not self.accumulate_between_decimation:
@@ -864,19 +951,33 @@ class NonRepetitiveLiDARRos2Node(Node):
                 self.cumulative_transform = T if self.cumulative_transform is None else (self.cumulative_transform @ T)
                 observed_pose = transformation_to_pose(self.cumulative_transform)
 
+                # Fuse IMU AFTER LiDAR registration
+                fused_pose = self._fuse_pose_with_imu(observed_pose, stamp)
+
                 reg_conf = estimate_registration_confidence(self.prev_cloud, cloud, T)
-                self.processor.update_with_observation(observed_pose, feat, reg_conf, pred_pose)
+                self.processor.update_with_observation(fused_pose, feat, reg_conf, pred_pose)
 
                 st = self.processor.get_current_state()
-                final_pose = st.pose.copy() if st is not None else observed_pose.copy()
+                final_pose = st.pose.copy() if st is not None else fused_pose.copy()
             else:
                 if self.cumulative_transform is None:
                     self.cumulative_transform = np.eye(4, dtype=float)
-                final_pose = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
+
+                init_pose = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
                 if self.force_z_zero:
-                    final_pose[2] = 0.0
-                self.processor.update_with_observation(final_pose, feat, registration_confidence=0.3, predicted_pose=pred_pose)
+                    init_pose[2] = 0.0
+
+                # Optional IMU-based first yaw initialization
+                init_pose = self._fuse_pose_with_imu(init_pose, stamp)
+
+                self.processor.update_with_observation(
+                    init_pose, feat, registration_confidence=0.3, predicted_pose=pred_pose
+                )
                 st = self.processor.get_current_state()
+                final_pose = st.pose.copy() if st is not None else init_pose.copy()
+
+            self.last_fused_stamp_sec = ros_time_to_sec(stamp)
+            self.last_fused_yaw = float(final_pose[3])
 
             # Publish odom (+tf)
             self._publish_odom_and_tf(stamp=stamp, final_pose=final_pose, st=st)
@@ -884,8 +985,10 @@ class NonRepetitiveLiDARRos2Node(Node):
             # Accumulate intensity-colored map
             Tmap = np.eye(4, dtype=float)
             yaw = float(final_pose[3])
-            Tmap[0, 0] = np.cos(yaw);  Tmap[0, 1] = -np.sin(yaw)
-            Tmap[1, 0] = np.sin(yaw);  Tmap[1, 1] =  np.cos(yaw)
+            Tmap[0, 0] = np.cos(yaw)
+            Tmap[0, 1] = -np.sin(yaw)
+            Tmap[1, 0] = np.sin(yaw)
+            Tmap[1, 1] = np.cos(yaw)
             Tmap[0, 3] = float(final_pose[0])
             Tmap[1, 3] = float(final_pose[1])
             Tmap[2, 3] = float(final_pose[2])
@@ -897,7 +1000,7 @@ class NonRepetitiveLiDARRos2Node(Node):
             if self.map_voxel > 0 and len(self.map_cloud.points) > 2_000_000:
                 self.map_cloud = self.map_cloud.voxel_down_sample(float(self.map_voxel))
 
-            # Publish map with intensity field
+            # Publish map
             self._publish_map_cloud(stamp=stamp)
 
             if self.viewer is not None:
