@@ -128,6 +128,36 @@ def apply_gicp_direct(source_cloud, target_cloud, voxel_size=0.05):
     result = small_gicp.align(source_raw_numpy, target_raw_numpy)
     return result.T_target_source
 
+def apply_gicp_with_init(source_cloud, target_cloud, init_T=None, voxel_size=0.05):
+    """
+    GICP with an IMU-predicted initial transform guess.
+
+    Args:
+        source_cloud: Open3D PointCloud (previous scan)
+        target_cloud: Open3D PointCloud (current scan)
+        init_T: 4x4 initial guess (T_source_target convention matching apply_gicp_direct)
+        voxel_size: unused, kept for API consistency
+    Returns:
+        4x4 transformation matrix
+    """
+    import numpy as np
+    import small_gicp
+
+    target_raw_numpy = np.asarray(target_cloud.points, dtype=np.float64)
+    source_raw_numpy = np.asarray(source_cloud.points, dtype=np.float64)
+
+    if len(source_raw_numpy) == 0 or len(target_raw_numpy) == 0:
+        print("Warning: Empty point cloud, returning identity")
+        return np.eye(4)
+
+    if init_T is None:
+        init_T = np.eye(4, dtype=np.float64)
+
+    result = small_gicp.align(source_raw_numpy, target_raw_numpy,
+                              init_T_target_source=init_T.astype(np.float64))
+    return result.T_target_source
+
+
 def apply_gicp_open3d_fallback(source_cloud, target_cloud, voxel_size=0.05):
     """
     Fallback GICP implementation using Open3D's built-in ICP

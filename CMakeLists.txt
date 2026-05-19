@@ -14,6 +14,7 @@ find_package(sensor_msgs REQUIRED)
 install(
   PROGRAMS
     scripts/ros_non_rep.py
+    scripts/ros_lio.py
     scripts/Pctools.py
     scripts/odom_to_tum.py
   DESTINATION lib/${PROJECT_NAME}

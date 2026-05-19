@@ -1,0 +1,66 @@
+lio_node:
+  ros__parameters:
+
+    # -------------------------
+    # LiDAR input
+    # -------------------------
+    lidar_topic: "/livox/points"
+    queue_size: 10
+
+    # -------------------------
+    # IMU input
+    # -------------------------
+    use_imu: true
+    imu_topic: "/imu/data"
+    imu_gravity_mag: 9.81        # m/s², used for default g_eff before estimation
+    imu_gravity_init_n: 100      # static IMU samples used to estimate gravity
+    imu_use_accel: true          # false = gyro-only initial guess (more robust in degenerate cases)
+    imu_timeout_sec: 0.5         # fall back to identity init if IMU is this old [s]
+    imu_gyro_bias: [0.0, 0.0, 0.0]   # [rad/s] known gyro bias (set from calibration)
+    imu_accel_bias: [0.0, 0.0, 0.0]  # [m/s²] known accel bias
+
+    # -------------------------
+    # Processing control
+    # -------------------------
+    step_decimation: 5           # process every N-th scan
+    max_scans: -1                # -1 = unlimited
+
+    # -------------------------
+    # Scan accumulation
+    # -------------------------
+    accumulate_between_decimation: true
+    accumulate_voxel: 0.1        # voxel size for buffer downsample [m]
+    accumulate_max_points: 1500000
+
+    # -------------------------
+    # Z handling (2-D mode)
+    # -------------------------
+    force_z_zero: true           # flatten height; disable for 3-D operation
+
+    # -------------------------
+    # Visualization
+    # -------------------------
+    visualize: true
+    map_voxel: 0.1               # map downsample voxel [m]
+
+    # -------------------------
+    # GICP
+    # -------------------------
+    use_pctools_gicp: true       # uses Pctools.apply_gicp_with_init (small_gicp)
+    gicp_max_corr_distance: 2.0
+    gicp_voxel_size: 0.2
+    gicp_max_iterations: 50
+
+    # -------------------------
+    # Odometry output
+    # -------------------------
+    publish_odom: true
+    odom_topic: "/lio/odom"
+    publish_map: true
+    map_topic: "/lio/map"
+    publish_tf: false
+    map_frame: "map"
+    base_frame: "base_link"
+    map_publish_voxel: 0.15
+    map_publish_max_points: 800000
+    map_publish_every_n_scans: 1
