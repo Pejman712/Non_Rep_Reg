@@ -4,14 +4,14 @@ lio_node:
     # -------------------------
     # LiDAR input
     # -------------------------
-    lidar_topic: "/livox/points"
+    lidar_topic: "/eve/lidar3d"
     queue_size: 10
 
     # -------------------------
     # IMU input
     # -------------------------
     use_imu: true
-    imu_topic: "/imu/data"
+    imu_topic: "/eve/livox/imu"
     imu_gravity_mag: 9.81        # m/s², used for default g_eff before estimation
     imu_gravity_init_n: 100      # static IMU samples used to estimate gravity
     imu_use_accel: true          # false = gyro-only initial guess (more robust in degenerate cases)
@@ -42,6 +42,13 @@ lio_node:
     # -------------------------
     visualize: true
     map_voxel: 0.1               # map downsample voxel [m]
+
+    # -------------------------
+    # Initial-guess fusion weights
+    # actual weight = base_weight × confidence, then normalised
+    # -------------------------
+    imu_base_weight: 0.7      # IMU dominates when fresh and accel-ready
+    nonrep_base_weight: 0.3   # non-rep contributes more in feature-rich areas
 
     # -------------------------
     # GICP

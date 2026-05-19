@@ -275,6 +275,19 @@ def so3_exp(omega_dt: np.ndarray) -> np.ndarray:
     return np.eye(3) + np.sin(angle) * axis_K + (1.0 - np.cos(angle)) * (axis_K @ axis_K)
 
 
+def so3_log(R: np.ndarray) -> np.ndarray:
+    """Rotation matrix → axis-angle vector (inverse of so3_exp)."""
+    cos_angle = float(np.clip((np.trace(R) - 1.0) / 2.0, -1.0, 1.0))
+    angle = float(np.arccos(cos_angle))
+    if abs(angle) < 1e-9:
+        return np.zeros(3)
+    return (angle / (2.0 * np.sin(angle))) * np.array([
+        R[2, 1] - R[1, 2],
+        R[0, 2] - R[2, 0],
+        R[1, 0] - R[0, 1],
+    ])
+
+
 class ImuPreintegrator:
     """
     Simple IMU pre-integration between consecutive LiDAR timestamps.
@@ -614,7 +627,12 @@ class LioNode(Node):
         self.gicp_voxel_size = float(p("gicp_voxel_size", 0.2))
         self.gicp_max_iterations = int(p("gicp_max_iterations", 50))
 
-        # ---- Processor (adaptive weights + confidence tracking)
+        # ---- Fusion weights (initial-guess blending)
+        # Final weight = base_weight × confidence_score, then normalised.
+        self.imu_base_weight = float(p("imu_base_weight", 0.7))
+        self.nonrep_base_weight = float(p("nonrep_base_weight", 0.3))
+
+        # ---- Processor (non-rep adaptive predictor + confidence tracking)
         self.processor = NonRepetitiveLiDARProcessor(force_z_zero=self.force_z_zero)
 
         # ---- IMU pre-integrator
@@ -662,8 +680,12 @@ class LioNode(Node):
             self.imu_sub = self.create_subscription(
                 Imu, self.imu_topic, self.cb_imu, 200)
 
-        self.get_logger().info("=== LIO Node (IMU pre-integration + GICP) ===")
+        self.get_logger().info("=== LIO Node (Non-Rep prediction + IMU pre-integration + GICP) ===")
         self.get_logger().info(f"lidar={self.lidar_topic}  use_imu={self.use_imu}")
+        self.get_logger().info(
+            f"fusion weights — imu_base={self.imu_base_weight}  "
+            f"nonrep_base={self.nonrep_base_weight}"
+        )
         if self.use_imu:
             self.get_logger().info(
                 f"imu={self.imu_topic}  use_accel={self.imu_use_accel}  "
@@ -762,6 +784,77 @@ class LioNode(Node):
 
         use_trans = self.imu_use_accel and self.integrator.is_accel_ready
         return self.integrator.get_delta_transform(R_world_at_t1, use_translation=use_trans)
+
+    def _imu_confidence(self, current_stamp_sec: float) -> float:
+        """Confidence score [0,1] for the IMU initial guess."""
+        if not self.use_imu or not self._imu_is_fresh(current_stamp_sec):
+            return 0.0
+        if self.integrator.is_accel_ready:
+            return 0.9   # full 6-DOF pre-integration (rotation + translation)
+        return 0.6       # gyro-only (rotation good, translation = 0)
+
+    def _build_nonrep_init_guess(self, pred_pose: np.ndarray) -> np.ndarray:
+        """
+        Convert the non-rep predictor's absolute predicted pose [x,y,z,yaw]
+        into a relative 4×4 T_B1_B2 suitable as a GICP initial guess.
+
+        The non-rep processor tracks poses with yaw-only rotation, so the
+        delta rotation is Rz(Δyaw). The translation delta is expressed in
+        the previous body frame using the LIO's full R_world.
+        """
+        st = self.processor.get_current_state()
+        if st is None:
+            return np.eye(4, dtype=float)
+
+        prev = st.pose  # [x1, y1, z1, yaw1]
+
+        delta_p_world = pred_pose[:3] - prev[:3]
+        delta_yaw = float(np.arctan2(
+            np.sin(pred_pose[3] - prev[3]),
+            np.cos(pred_pose[3] - prev[3]),
+        ))
+
+        cy, sy = np.cos(delta_yaw), np.sin(delta_yaw)
+        dR = np.array([[cy, -sy, 0.0],
+                       [sy,  cy, 0.0],
+                       [0.0, 0.0, 1.0]], dtype=float)
+
+        # Express translation in prev body frame via the LIO's full rotation
+        dp_body = self.R_world.T @ delta_p_world
+
+        T = np.eye(4, dtype=float)
+        T[:3, :3] = dR
+        T[:3, 3] = dp_body
+        return T
+
+    def _merge_init_guesses(self,
+                             T_imu: np.ndarray, w_imu: float,
+                             T_nonrep: np.ndarray, w_nonrep: float) -> np.ndarray:
+        """
+        Blend two relative transforms in tangent space (axis-angle + translation).
+
+        Rotations are averaged in so3 via weighted axis-angle interpolation.
+        Translations are blended linearly.
+        Falls back to identity when both weights are zero.
+        """
+        total = w_imu + w_nonrep
+        if total < 1e-9:
+            return np.eye(4, dtype=float)
+
+        wi = w_imu / total
+        wn = w_nonrep / total
+
+        # Blend translations
+        dp = wi * T_imu[:3, 3] + wn * T_nonrep[:3, 3]
+
+        # Blend rotations in axis-angle space
+        aa = wi * so3_log(T_imu[:3, :3]) + wn * so3_log(T_nonrep[:3, :3])
+        dR = so3_exp(aa)
+
+        T = np.eye(4, dtype=float)
+        T[:3, :3] = dR
+        T[:3, 3] = dp
+        return T
 
     # -------------------------------------------------------------------------
     # Scan buffering / decimation (unchanged logic)
@@ -878,15 +971,33 @@ class LioNode(Node):
         try:
             feat = self.processor.extract_scan_features(cloud)
 
-            # ------ IMU pre-integration → initial guess for GICP ------
-            T_init = np.eye(4, dtype=float)
+            # ------ Non-rep adaptive prediction -----------------------
+            # predict_pose_adaptive uses feature similarity, geometric
+            # consistency, and temporal extrapolation from the processor's
+            # scan-state history.
+            pred_pose, pred_conf = self.processor.predict_pose_adaptive(feat)
+
+            # ------ IMU pre-integration --------------------------------
+            T_imu = np.eye(4, dtype=float)
+            w_imu = 0.0
             if self.use_imu and self.last_scan_stamp_sec is not None:
                 if self._imu_is_fresh(current_stamp_sec):
                     imu_msgs = self._pop_imu_for_interval(
                         self.last_scan_stamp_sec, current_stamp_sec)
-                    T_init = self._build_imu_init_guess(imu_msgs, self.R_world.copy())
+                    T_imu = self._build_imu_init_guess(imu_msgs, self.R_world.copy())
+                    w_imu = self._imu_confidence(current_stamp_sec) * self.imu_base_weight
                 else:
-                    self.get_logger().warn("IMU stale — using identity initial guess")
+                    self.get_logger().warn("IMU stale — falling back to non-rep only")
+
+            # ------ Non-rep → relative transform -----------------------
+            T_nonrep = np.eye(4, dtype=float)
+            w_nonrep = 0.0
+            if pred_pose is not None and self.processor.get_current_state() is not None:
+                T_nonrep = self._build_nonrep_init_guess(pred_pose)
+                w_nonrep = float(pred_conf) * self.nonrep_base_weight
+
+            # ------ Weighted merge → GICP initial guess ----------------
+            T_init = self._merge_init_guesses(T_imu, w_imu, T_nonrep, w_nonrep)
 
             # ------ GICP registration ----------------------------------
             if self.prev_cloud is not None and len(self.prev_cloud.points) > 0:
@@ -920,7 +1031,7 @@ class LioNode(Node):
                 # Feed processor for adaptive tracking
                 yaw = float(np.arctan2(self.R_world[1, 0], self.R_world[0, 0]))
                 obs_pose = np.array([self.p_world[0], self.p_world[1], self.p_world[2], yaw])
-                self.processor.update_with_observation(obs_pose, feat, reg_conf)
+                self.processor.update_with_observation(obs_pose, feat, reg_conf, pred_pose)
                 st = self.processor.get_current_state()
 
             else:
