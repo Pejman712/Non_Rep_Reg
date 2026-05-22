@@ -1,0 +1,50 @@
+-- The C compiler identification is GNU 11.4.0
+-- The CXX compiler identification is GNU 11.4.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake: 1.3.13 (/opt/ros/humble/share/ament_cmake/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter
+-- Found rclpy: 3.3.20 (/opt/ros/humble/share/rclpy/cmake)
+-- Found sensor_msgs: 4.9.1 (/opt/ros/humble/share/sensor_msgs/cmake)
+-- Found rosidl_generator_c: 3.1.8 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+-- Found rosidl_adapter: 3.1.8 (/opt/ros/humble/share/rosidl_adapter/cmake)
+-- Found rosidl_generator_cpp: 3.1.8 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Configuring done (1.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /u/97/habibip1/unix/ros2_ws/src/regnonrep/build/regnonrep
+-- Install configuration: ""
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/lib/regnonrep/ros_non_rep.py
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/lib/regnonrep/ros_lio.py
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/lib/regnonrep/Pctools.py
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/lib/regnonrep/odom_to_tum.py
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/config
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/config/lio.yaml
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/config/non_rep_lidar.yaml
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/launch
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/launch/non_rep_lidar.launch.py
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/launch/lio.launch.py
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/ament_index/resource_index/package_run_dependencies/regnonrep
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/ament_index/resource_index/parent_prefix_path/regnonrep
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/environment/ament_prefix_path.sh
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/environment/ament_prefix_path.dsv
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/environment/path.sh
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/environment/path.dsv
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/local_setup.bash
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/local_setup.sh
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/local_setup.zsh
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/local_setup.dsv
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/package.dsv
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/ament_index/resource_index/packages/regnonrep
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/cmake/regnonrepConfig.cmake
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/cmake/regnonrepConfig-version.cmake
+-- Installing: /u/97/habibip1/unix/ros2_ws/src/regnonrep/install/regnonrep/share/regnonrep/package.xml

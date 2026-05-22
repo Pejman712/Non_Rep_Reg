@@ -1,0 +1,54 @@
+{
+	"cmake" : 
+	{
+		"generator" : 
+		{
+			"multiConfig" : false,
+			"name" : "Unix Makefiles"
+		},
+		"paths" : 
+		{
+			"cmake" : "/u/97/habibip1/unix/.local/lib/python3.10/site-packages/cmake/data/bin/cmake",
+			"cpack" : "/u/97/habibip1/unix/.local/lib/python3.10/site-packages/cmake/data/bin/cpack",
+			"ctest" : "/u/97/habibip1/unix/.local/lib/python3.10/site-packages/cmake/data/bin/ctest",
+			"root" : "/u/97/habibip1/unix/.local/lib/python3.10/site-packages/cmake/data/share/cmake-4.3"
+		},
+		"version" : 
+		{
+			"isDirty" : false,
+			"major" : 4,
+			"minor" : 3,
+			"patch" : 2,
+			"string" : "4.3.2",
+			"suffix" : ""
+		}
+	},
+	"objects" : 
+	[
+		{
+			"jsonFile" : "codemodel-v2-ed3dec44565990d7513a.json",
+			"kind" : "codemodel",
+			"version" : 
+			{
+				"major" : 2,
+				"minor" : 10
+			}
+		}
+	],
+	"reply" : 
+	{
+		"client-colcon-cmake" : 
+		{
+			"codemodel-v2" : 
+			{
+				"jsonFile" : "codemodel-v2-ed3dec44565990d7513a.json",
+				"kind" : "codemodel",
+				"version" : 
+				{
+					"major" : 2,
+					"minor" : 10
+				}
+			}
+		}
+	}
+}

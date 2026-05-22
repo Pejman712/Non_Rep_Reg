@@ -11,10 +11,11 @@ lio_node:
     # IMU input
     # -------------------------
     use_imu: true
-    imu_topic: "/eve/livox/imu"
+    imu_topic: "/eve/imu/data"
     imu_gravity_mag: 9.81        # m/s², used for default g_eff before estimation
-    imu_gravity_init_n: 100      # static IMU samples used to estimate gravity
-    imu_use_accel: true          # false = gyro-only initial guess (more robust in degenerate cases)
+    imu_gravity_init_n: 400      # static IMU samples for gravity est. (1 s at 400 Hz)
+    imu_gravity_z_down: false    # set true if sensor z-axis points down (auto-detected but can force)
+    imu_use_accel: false         # false = gyro-only initial guess (more robust in degenerate cases)
     imu_timeout_sec: 0.5         # fall back to identity init if IMU is this old [s]
     imu_gyro_bias: [0.0, 0.0, 0.0]   # [rad/s] known gyro bias (set from calibration)
     imu_accel_bias: [0.0, 0.0, 0.0]  # [m/s²] known accel bias
@@ -22,13 +23,13 @@ lio_node:
     # -------------------------
     # Processing control
     # -------------------------
-    step_decimation: 5           # process every N-th scan
+    step_decimation: 2           # process every N-th scan
     max_scans: -1                # -1 = unlimited
 
     # -------------------------
     # Scan accumulation
     # -------------------------
-    accumulate_between_decimation: true
+    accumulate_between_decimation: false
     accumulate_voxel: 0.1        # voxel size for buffer downsample [m]
     accumulate_max_points: 1500000
 
@@ -40,15 +41,35 @@ lio_node:
     # -------------------------
     # Visualization
     # -------------------------
-    visualize: true
+    visualize: false
     map_voxel: 0.1               # map downsample voxel [m]
 
     # -------------------------
-    # Initial-guess fusion weights
+    # iESKF noise parameters  — Xsens MTi-630 AHRS @ 400 Hz
+    # -------------------------
+    ieskf_sigma_gyro:     0.000122  # gyro ARW  0.007 °/s/√Hz → rad/s/√Hz
+    ieskf_sigma_accel:    0.000589  # accel VRW 60 µg/√Hz × 9.81
+    ieskf_sigma_bg:       0.0001    # gyro bias RW rate  [rad/s/√Hz]
+    ieskf_sigma_ba:       0.001     # accel bias RW rate [m/s²/√Hz]
+    ieskf_init_bg_cov:    0.02      # initial gyro bias var (8 °/s spec → 0.14² rad²/s²)
+    ieskf_init_ba_cov:    0.0001    # initial accel bias var [m²/s⁴]
+    ieskf_max_iters:      3         # SO(3) re-linearisation iterations per scan
+    ieskf_meas_noise_pos: 0.05      # GICP position measurement noise [m]
+    ieskf_meas_noise_rot: 0.01      # GICP rotation measurement noise [rad]
+
+    # -------------------------
+    # Initial-guess fusion weights (GICP seeding only — unchanged role)
     # actual weight = base_weight × confidence, then normalised
     # -------------------------
-    imu_base_weight: 0.7      # IMU dominates when fresh and accel-ready
-    nonrep_base_weight: 0.3   # non-rep contributes more in feature-rich areas
+    imu_base_weight: 0.3      # reduced — non-rep drives GICP seeding while IMU bias settles
+    nonrep_base_weight: 0.7   # non-rep dominates initial guess; IMU corrects via iESKF update
+
+    # -------------------------
+    # Degenerate-scan threshold
+    # Below this confidence the measurement noise is boosted ×20 so the
+    # iESKF trusts IMU propagation instead of a bad GICP result.
+    # -------------------------
+    gicp_min_conf: 0.25
 
     # -------------------------
     # GICP
@@ -71,3 +92,14 @@ lio_node:
     map_publish_voxel: 0.15
     map_publish_max_points: 800000
     map_publish_every_n_scans: 1
+
+    # -------------------------
+    # TUM trajectory writer
+    # -------------------------
+    odom_to_tum:
+      enabled: true
+      odom_topic: "/lio/odom"
+      output_path: "/u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/lio_odom.tum"
+      flush_every_n: 10
+      use_msg_time: true
+      append: false

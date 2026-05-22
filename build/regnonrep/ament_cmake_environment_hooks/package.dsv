@@ -1,0 +1,4 @@
+source;share/regnonrep/local_setup.bash
+source;share/regnonrep/local_setup.dsv
+source;share/regnonrep/local_setup.sh
+source;share/regnonrep/local_setup.zsh
