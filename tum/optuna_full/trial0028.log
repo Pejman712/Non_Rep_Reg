@@ -1,0 +1,105 @@
+[INFO] [1781599970.957269188] [lio_node_v2]: [debug] Writing per-scan CSV → /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/optuna_full/trial0028.csv
+/u/97/habibip1/unix/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+[INFO] [1781599971.162802354] [lio_node_v2]: Using Pctools.apply_gicp_with_init_full (H matrix)
+[INFO] [1781599971.167687610] [lio_node_v2]: === LIO Node (Non-Rep + iESKF Point-LIO style) ===
+[INFO] [1781599971.167893866] [lio_node_v2]: lidar=/avia/livox/points  use_imu=True
+[INFO] [1781599971.168079553] [lio_node_v2]: imu=/avia/livox/imu  accel_scale=9.81  σ_gyro=0.0007810995663218347  σ_accel=0.0685823564811819  σ_bg=0.0005255574866739624  σ_ba=0.0008032384234296547
+[INFO] [1781599971.168260393] [lio_node_v2]: IIR filter: 2nd-order Butterworth LP, cutoff=25 Hz, approx group_delay=20 ms (was 100 ms with 41-tap FIR), propagation at full 200 Hz
+[INFO] [1781599971.169446937] [lio_node_v2]: === LIO Node V2 (18-DOF IESKF18, Super-LIO ports) ===
+[INFO] [1781599971.169651670] [lio_node_v2]:   Gravity in state:           online estimation, norm-constrained
+[INFO] [1781599971.169827027] [lio_node_v2]:   Update form:                information-form (A = P⁻¹ + HᵀV⁻¹H)
+[INFO] [1781599971.169998489] [lio_node_v2]:   Propagation:                right-Jacobian J_r, midpoint integration
+[INFO] [1781599971.170173881] [lio_node_v2]:   level_init:                 True  (gravity-aligned world frame)
+[INFO] [1781599971.170344382] [lio_node_v2]:   imu_auto_scale:             True
+[INFO] [1781599971.170517219] [lio_node_v2]:   undistort_translation:      True
+[INFO] [1781599971.170688156] [lio_node_v2]:   init_g_cov:                 0.16188503999222353
+[INFO] [1781599971.170858474] [lio_node_v2]:   ieskf_sigma_gyro/accel:     0.0007810995663218347 / 0.0685823564811819
+stdin is not a terminal device. Keyboard handling disabled.[INFO] [1781599972.541216349] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia/indoor1_avia.db3' for READ_ONLY.
+[INFO] [1781599972.541252333] [rosbag2_player]: Set rate to 0.3
+[INFO] [1781599972.543946293] [rosbag2_player]: Adding keyboard callbacks.
+[INFO] [1781599972.543969430] [rosbag2_player]: Press SPACE for Pause/Resume
+[INFO] [1781599972.543974275] [rosbag2_player]: Press CURSOR_RIGHT for Play Next Message
+[INFO] [1781599972.543978258] [rosbag2_player]: Press CURSOR_UP for Increase Rate 10%
+[INFO] [1781599972.543981695] [rosbag2_player]: Press CURSOR_DOWN for Decrease Rate 10%
+[INFO] [1781599972.544233461] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia/indoor1_avia.db3' for READ_ONLY.
+[INFO] [1781599975.565048199] [lio_node_v2]: Static init complete — g_world=[0.000, 0.000, 9.810] norm=9.810 m/s²  |  gyro_bias=[0.0012, 0.0002, 0.0007] rad/s
+[INFO] [1781599975.565499998] [lio_node_v2]: [level_init] World frame leveled (gravity-aligned, yaw removed); accel_scale=1.0058 — map restarted
+[WARN] [1781600015.245983179] [lio_node_v2]: Scan 118: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600034.919296969] [lio_node_v2]: Scan 177: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600073.904285401] [lio_node_v2]: Scan 294: low GICP conf (0.10), χ²=0.4
+[WARN] [1781600101.259171070] [lio_node_v2]: Scan 376: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600107.278526234] [lio_node_v2]: Scan 394: low GICP conf (0.35), χ²=0.0
+[WARN] [1781600110.586365522] [lio_node_v2]: Scan 404: low GICP conf (0.38), χ²=0.2
+[WARN] [1781600131.255940478] [lio_node_v2]: Scan 466: low GICP conf (0.34), χ²=0.0
+[WARN] [1781600134.284000124] [lio_node_v2]: Scan 475: low GICP conf (0.29), χ²=0.1
+[WARN] [1781600135.623983772] [lio_node_v2]: Scan 479: low GICP conf (0.10), χ²=0.5
+[WARN] [1781600136.304120691] [lio_node_v2]: Scan 481: low GICP conf (0.29), χ²=0.0
+[WARN] [1781600137.704829850] [lio_node_v2]: Scan 485: low GICP conf (0.17), χ²=0.1
+[WARN] [1781600137.987324932] [lio_node_v2]: Scan 486: low GICP conf (0.10), χ²=0.1
+[WARN] [1781600138.773161360] [lio_node_v2]: Scan 488: low GICP conf (0.32), χ²=0.0
+[WARN] [1781600139.368726237] [lio_node_v2]: Scan 490: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600139.723088835] [lio_node_v2]: Scan 491: low GICP conf (0.17), χ²=0.0
+[WARN] [1781600140.017110046] [lio_node_v2]: Scan 492: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600140.527980949] [lio_node_v2]: Scan 493: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600140.727867112] [lio_node_v2]: Scan 494: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600141.098122225] [lio_node_v2]: Scan 495: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600141.773742966] [lio_node_v2]: Scan 497: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600142.501878404] [lio_node_v2]: Scan 499: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600142.752316791] [lio_node_v2]: Scan 500: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600143.257748931] [lio_node_v2]: Scan 501: low GICP conf (0.36), χ²=0.0
+[WARN] [1781600143.690643197] [lio_node_v2]: Scan 502: low GICP conf (0.10), χ²=0.5
+[WARN] [1781600143.957787597] [lio_node_v2]: Scan 503: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600144.460686830] [lio_node_v2]: Scan 504: low GICP conf (0.10), χ²=0.1
+[WARN] [1781600144.655523971] [lio_node_v2]: Scan 505: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600145.069319995] [lio_node_v2]: Scan 506: low GICP conf (0.10), χ²=0.1
+[WARN] [1781600145.371523279] [lio_node_v2]: Scan 507: low GICP conf (0.10), χ²=1.3
+[WARN] [1781600145.781387704] [lio_node_v2]: Scan 508: low GICP conf (0.19), χ²=0.0
+[WARN] [1781600146.174337455] [lio_node_v2]: Scan 509: low GICP conf (0.17), χ²=0.4
+[WARN] [1781600146.850881101] [lio_node_v2]: Scan 511: low GICP conf (0.10), χ²=12.2
+[WARN] [1781600147.127399516] [lio_node_v2]: Scan 512: low GICP conf (0.23), χ²=3.5
+[WARN] [1781600147.764780403] [lio_node_v2]: Scan 514: low GICP conf (0.36), χ²=2.3
+[WARN] [1781600148.195753391] [lio_node_v2]: Scan 516: low GICP conf (0.10), χ²=1.2
+[WARN] [1781600148.587590530] [lio_node_v2]: Scan 518: low GICP conf (0.10), χ²=3.9
+[WARN] [1781600148.978273415] [lio_node_v2]: Scan 519: low GICP conf (0.10), χ²=1.3
+[WARN] [1781600168.277053716] [lio_node_v2]: Scan 577: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600172.259481343] [lio_node_v2]: Scan 589: low GICP conf (0.37), χ²=0.1
+[WARN] [1781600213.283561864] [lio_node_v2]: Scan 712: low GICP conf (0.14), χ²=0.0
+[WARN] [1781600285.072087782] [lio_node_v2]: Scan 927: low GICP conf (0.10), χ²=0.7
+[WARN] [1781600285.696776218] [lio_node_v2]: Scan 929: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600286.214553783] [lio_node_v2]: Scan 930: low GICP conf (0.34), χ²=0.0
+[WARN] [1781600286.662760914] [lio_node_v2]: Scan 931: low GICP conf (0.10), χ²=0.2
+[WARN] [1781600287.044501294] [lio_node_v2]: Scan 932: low GICP conf (0.18), χ²=0.9
+[WARN] [1781600288.234204139] [lio_node_v2]: Scan 934: low GICP conf (0.37), χ²=0.7
+[WARN] [1781600288.878984297] [lio_node_v2]: Scan 935: low GICP conf (0.38), χ²=0.0
+[WARN] [1781600289.541433400] [lio_node_v2]: Scan 936: low GICP conf (0.10), χ²=1.2
+[WARN] [1781600289.985765034] [lio_node_v2]: Scan 937: low GICP conf (0.22), χ²=0.2
+[WARN] [1781600290.535790176] [lio_node_v2]: Scan 938: low GICP conf (0.10), χ²=0.8
+[WARN] [1781600290.864974872] [lio_node_v2]: Scan 939: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600291.531428790] [lio_node_v2]: Scan 940: low GICP conf (0.10), χ²=1.8
+[WARN] [1781600292.125753988] [lio_node_v2]: Scan 941: low GICP conf (0.10), χ²=0.1
+[WARN] [1781600292.959681814] [lio_node_v2]: Scan 942: low GICP conf (0.12), χ²=0.1
+[WARN] [1781600293.690082164] [lio_node_v2]: Scan 943: low GICP conf (0.10), χ²=1.2
+[WARN] [1781600294.395238814] [lio_node_v2]: Scan 944: low GICP conf (0.10), χ²=6.5
+[WARN] [1781600294.820947638] [lio_node_v2]: Scan 945: low GICP conf (0.10), χ²=0.8
+[WARN] [1781600295.287796211] [lio_node_v2]: Scan 946: GICP update REJECTED (χ²=41.6 > 32.4) — conf=0.14, IMU holds
+[WARN] [1781600295.738161959] [lio_node_v2]: Scan 947: low GICP conf (0.28), χ²=1.2
+[WARN] [1781600296.199223918] [lio_node_v2]: Scan 949: low GICP conf (0.10), χ²=7.0
+[WARN] [1781600299.605130383] [lio_node_v2]: Scan 964: low GICP conf (0.10), χ²=6.5
+[WARN] [1781600303.277458697] [lio_node_v2]: Scan 975: low GICP conf (0.15), χ²=0.0
+[WARN] [1781600319.948579975] [lio_node_v2]: Scan 1025: low GICP conf (0.23), χ²=0.0
+[WARN] [1781600324.622045785] [lio_node_v2]: Scan 1039: low GICP conf (0.36), χ²=0.0
+[WARN] [1781600327.950092567] [lio_node_v2]: Scan 1049: low GICP conf (0.10), χ²=0.0
+[WARN] [1781600341.938275580] [lio_node_v2]: Scan 1091: low GICP conf (0.15), χ²=0.0
+Traceback (most recent call last):
+  File "/u/97/habibip1/unix/ros2_ws/install/regnonrep/lib/regnonrep/ros_lio_v2.py", line 783, in <module>
+    main()
+  File "/u/97/habibip1/unix/ros2_ws/install/regnonrep/lib/regnonrep/ros_lio_v2.py", line 779, in main
+    rclpy.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+    return context.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241

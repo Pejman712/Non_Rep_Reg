@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
 """
 ROS2 Non-Repetitive LiDAR Processor (PointCloud2 -> Open3D) + Live Open3D visualization
 WITH ALL PARAMETERS LOADED FROM A YAML CONFIG FILE (ROS2 params).
@@ -579,42 +579,6 @@ def open3d_cloud_to_pointcloud2_xyzi(cloud: o3d.geometry.PointCloud, header: Hea
 
 
 # =========================
-# Live Open3D visualization
-# =========================
-class LiveOpen3D:
-    def __init__(self, window_name="ROS2 Non-Repetitive LiDAR", width=1400, height=900):
-        self.vis = o3d.visualization.Visualizer()
-        self.vis.create_window(window_name=window_name, width=width, height=height)
-
-        self.latest = o3d.geometry.PointCloud()
-        self.map = o3d.geometry.PointCloud()
-        self._latest_added = False
-        self._map_added = False
-
-    def update(self, latest_cloud: Optional[o3d.geometry.PointCloud], map_cloud: Optional[o3d.geometry.PointCloud]):
-        if latest_cloud is not None:
-            self.latest = latest_cloud
-            if not self._latest_added:
-                self.vis.add_geometry(self.latest)
-                self._latest_added = True
-            else:
-                self.vis.update_geometry(self.latest)
-
-        if map_cloud is not None:
-            self.map = map_cloud
-            if not self._map_added:
-                self.vis.add_geometry(self.map)
-                self._map_added = True
-            else:
-                self.vis.update_geometry(self.map)
-
-        self.vis.poll_events()
-        self.vis.update_renderer()
-
-    def close(self):
-        self.vis.destroy_window()
-
-
 # =========================
 # GICP
 # =========================
@@ -695,8 +659,7 @@ class NonRepetitiveLiDARRos2Node(Node):
         self.temporal_weight = float(p("temporal_weight", 0.3))
         self.freeze_adaptation = bool(p("freeze_adaptation", False))
 
-        # ---- Visualization
-        self.visualize = bool(p("visualize", True))
+        # ---- Map
         self.map_voxel = float(p("map_voxel", 0.15))
 
         # ---- GICP selection & parameters
@@ -729,10 +692,6 @@ class NonRepetitiveLiDARRos2Node(Node):
 
         self.msg_counter = 0
         self.scan_counter = 0
-
-        self.viewer = LiveOpen3D(
-            window_name="Non-Repetitive LiDAR Map (Intensity, Z=0)" if self.force_z_zero else "Non-Repetitive LiDAR Map (Intensity)"
-        ) if self.visualize else None
 
         # ---- Publishers
         self.odom_pub = self.create_publisher(Odometry, self.odom_topic, 10) if self.publish_odom else None
@@ -945,9 +904,6 @@ class NonRepetitiveLiDARRos2Node(Node):
             # Publish map with intensity field
             self._publish_map_cloud(stamp=stamp)
 
-            if self.viewer is not None:
-                self.viewer.update(latest_cloud=cloud, map_cloud=self.map_cloud)
-
         except Exception as e:
             self.get_logger().error(f"Error processing scan {self.scan_counter}: {e}")
 
@@ -959,8 +915,7 @@ class NonRepetitiveLiDARRos2Node(Node):
             rclpy.shutdown()
 
     def shutdown(self):
-        if self.viewer is not None:
-            self.viewer.close()
+        pass
 
 
 def main():

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
 import numpy as np
 import open3d as o3d
 import os
@@ -174,6 +174,31 @@ def apply_gicp_with_init(source_cloud, target_cloud, init_T=None, voxel_size=0.0
                               init_T_target_source=init_T.astype(np.float64),
                               num_threads=int(num_threads))
     return result.T_target_source
+
+
+def apply_gicp_with_init_full(source_cloud, target_cloud, init_T=None, voxel_size=0.05,
+                               num_threads=4):
+    """Same as apply_gicp_with_init but returns (T_prev_current, H_6x6) where
+    H is the Gauss-Newton Hessian of the GICP cost (order: [rot(3), trans(3)]).
+    inv(H) approximates the 6-DOF pose covariance at the solution.
+    Returns (identity, None) on empty cloud."""
+    import numpy as np
+    import small_gicp
+
+    target_raw_numpy = np.asarray(target_cloud.points, dtype=np.float64)
+    source_raw_numpy = np.asarray(source_cloud.points, dtype=np.float64)
+
+    if len(source_raw_numpy) == 0 or len(target_raw_numpy) == 0:
+        return np.eye(4), None
+
+    if init_T is None:
+        init_T = np.eye(4, dtype=np.float64)
+
+    result = small_gicp.align(source_raw_numpy, target_raw_numpy,
+                              init_T_target_source=init_T.astype(np.float64),
+                              num_threads=int(num_threads))
+    H = np.array(result.H, dtype=np.float64)
+    return result.T_target_source, H
 
 
 def apply_gicp_open3d_fallback(source_cloud, target_cloud, voxel_size=0.05):

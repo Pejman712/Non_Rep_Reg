@@ -78,6 +78,9 @@ lio_node:
     gicp_max_corr_distance: 2.0
     gicp_voxel_size: 0.2
     gicp_max_iterations: 50
+    gicp_submap_radius: 25.0
+    voxel_map_prune_radius: 80.0
+    voxel_map_max_voxels: 400000
 
     # -------------------------
     # Odometry output
@@ -93,13 +96,3 @@ lio_node:
     map_publish_max_points: 800000
     map_publish_every_n_scans: 1
 
-    # -------------------------
-    # TUM trajectory writer
-    # -------------------------
-    odom_to_tum:
-      enabled: true
-      odom_topic: "/lio/odom"
-      output_path: "/u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/lio_odom.tum"
-      flush_every_n: 10
-      use_msg_time: true
-      append: false

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
 """
 Plot ground truth vs one or more estimated TUM trajectories.
 
@@ -12,7 +12,22 @@ import sys
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")
+import os
+
+# Use an interactive backend when a display is available, Agg otherwise.
+_has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+if _has_display:
+    try:
+        matplotlib.use("TkAgg")
+    except Exception:
+        try:
+            matplotlib.use("Qt5Agg")
+        except Exception:
+            _has_display = False
+            matplotlib.use("Agg")
+else:
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -51,32 +66,33 @@ def center(xy):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--gt", type=Path, default=None,
+                        help="Ground-truth TUM file (optional; omit when none available)")
     parser.add_argument("files", nargs="+", type=Path,
-                        help="gt.tum [est1.tum ...] output.png")
+                        help="est1.tum [est2.tum ...] output.png")
     parser.add_argument("--duration", type=float, default=0,
                         help="Clip to first N seconds (0 = all)")
     args = parser.parse_args()
 
     if len(args.files) < 2:
-        print("Need at least gt.tum and output.png")
+        print("Need at least one est.tum and output.png")
         sys.exit(1)
 
-    output   = args.files[-1]
-    gt_path  = args.files[0]
-    est_paths = args.files[1:-1]  # everything between gt and output
-
-    gt = read_tum(gt_path)
-    if args.duration > 0:
-        gt = clip_to_duration(gt, args.duration)
-    gt_xy = center(gt[:, 1:3])
+    output    = args.files[-1]
+    est_paths = args.files[:-1]
 
     duration_str = f" — first {args.duration:.0f}s" if args.duration > 0 else ""
     fig, ax = plt.subplots(figsize=(8, 8))
 
-    ax.plot(gt_xy[:, 0], gt_xy[:, 1],
-            linewidth=2.5, linestyle="--", color="steelblue",
-            label=f"Ground truth  ({len(gt_xy)} poses)", zorder=10)
-    ax.plot(*gt_xy[0], "o", color="steelblue", markersize=8, zorder=11)
+    if args.gt is not None:
+        gt = read_tum(args.gt)
+        if args.duration > 0:
+            gt = clip_to_duration(gt, args.duration)
+        gt_xy = center(gt[:, 1:3])
+        ax.plot(gt_xy[:, 0], gt_xy[:, 1],
+                linewidth=2.5, linestyle="--", color="steelblue",
+                label=f"Ground truth  ({len(gt_xy)} poses)", zorder=10)
+        ax.plot(*gt_xy[0], "o", color="steelblue", markersize=8, zorder=11)
 
     for i, est_path in enumerate(est_paths):
         color = COLORS[i % len(COLORS)]
@@ -90,7 +106,10 @@ def main():
                 label=f"{label_name}  ({len(est_xy)} poses)")
         ax.plot(*est_xy[0], "o", color=color, markersize=8)
 
-    ax.set_title(f"Trajectory: Ground Truth vs regnonrep LIO{duration_str}", fontsize=13)
+    if args.gt is not None:
+        ax.set_title(f"Trajectory: Ground Truth vs regnonrep LIO{duration_str}", fontsize=13)
+    else:
+        ax.set_title(f"Trajectory: regnonrep LIO{duration_str}", fontsize=13)
     ax.set_xlabel("x [m]")
     ax.set_ylabel("y [m]")
     ax.axis("equal")
@@ -100,8 +119,10 @@ def main():
 
     output.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output, dpi=180)
-    plt.close()
     print(f"Saved trajectory plot → {output}")
+    if _has_display:
+        plt.show()
+    plt.close()
 
 
 if __name__ == "__main__":

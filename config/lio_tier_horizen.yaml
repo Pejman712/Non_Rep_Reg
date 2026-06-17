@@ -1,0 +1,106 @@
+lio_node:
+  ros__parameters:
+
+    # -------------------------
+    # LiDAR input — Livox Horizon
+    # -------------------------
+    lidar_topic: "/livox/points"
+    queue_size: 5
+
+    # -------------------------
+    # IMU input — Livox Horizon built-in IMU (~200 Hz)
+    # -------------------------
+    use_imu: true
+    imu_topic: "/livox/imu"
+    imu_gravity_mag: 9.81
+    imu_gravity_init_n: 200        # ~1 s at 200 Hz
+    imu_gravity_z_down: false
+    imu_use_accel: true            # full IMU fusion for indoor 3-D
+    imu_timeout_sec: 0.5
+    imu_accel_scale: 9.81          # Livox Horizon bag publishes accel in g, convert to m/s²
+    imu_gyro_bias: [0.0, 0.0, 0.0]
+    imu_accel_bias: [0.0, 0.0, 0.0]
+
+    # -------------------------
+    # Processing control
+    # -------------------------
+    step_decimation: 1             # ~10 Hz LiDAR — process every scan
+    max_scans: -1
+
+    # -------------------------
+    # Scan accumulation
+    # -------------------------
+    accumulate_between_decimation: false
+    accumulate_voxel: 0.1
+    accumulate_max_points: 1500000
+
+    # -------------------------
+    # Z handling — flat-floor indoor
+    # -------------------------
+    force_z_zero: true
+    soft_z_sigma: 0.05          # m — replaces hard zero; makes ba_z observable
+
+    # -------------------------
+    # ZUPT — zero-velocity update
+    # -------------------------
+    zupt_omega_thresh: 0.05     # rad/s — gyro norm below this → static
+    zupt_accel_thresh: 0.30     # m/s² — |a_world - g| below this → static
+    zupt_sigma_v: 0.01          # m/s — velocity measurement noise for ZUPT
+
+    # -------------------------
+    # Visualization
+    # -------------------------
+    visualize: false
+    map_voxel: 0.1
+
+    # -------------------------
+    # iESKF noise parameters — Livox Horizon built-in IMU (BMI088-class)
+    # -------------------------
+    ieskf_sigma_gyro:     0.001    # gyro ARW  [rad/s/√Hz]
+    ieskf_sigma_accel:    0.01     # accel VRW [m/s²/√Hz]
+    ieskf_sigma_bg:       0.0001   # gyro bias RW rate  [rad/s/√Hz]
+    ieskf_sigma_ba:       0.001    # accel bias RW rate [m/s²/√Hz]
+    ieskf_init_p_cov:     1.0
+    ieskf_init_bg_cov:    0.02
+    ieskf_init_ba_cov:    0.0001
+    ieskf_max_iters:      3
+    ieskf_meas_noise_pos: 0.05
+    ieskf_meas_noise_rot: 0.01
+
+    # -------------------------
+    # Initial-guess fusion weights
+    # -------------------------
+    imu_base_weight: 0.3
+    nonrep_base_weight: 0.7
+
+    # -------------------------
+    # Degenerate-scan threshold
+    # -------------------------
+    gicp_min_conf: 0.25
+
+    # -------------------------
+    # GICP
+    # -------------------------
+    use_pctools_gicp: true
+    gicp_max_corr_distance: 2.0
+    gicp_voxel_size: 0.2
+    gicp_max_iterations: 50
+    gicp_submap_radius: 25.0
+    voxel_map_prune_radius: 80.0
+    voxel_map_max_voxels: 400000
+
+    # -------------------------
+    # Odometry output
+    # -------------------------
+    publish_odom: true
+    odom_topic: "/lio/odom"
+    publish_map: true
+    map_topic: "/lio/map"
+    publish_tf: false
+    map_frame: "map"
+    base_frame: "base_link"
+    map_voxel: 0.1
+    map_publish_voxel: 0.15
+    map_publish_max_points: 800000
+    map_publish_every_n_scans: 1
+

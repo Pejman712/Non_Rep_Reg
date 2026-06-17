@@ -1,0 +1,122 @@
+lio_node_v2:
+  ros__parameters:
+
+    # -------------------------
+    # LiDAR input
+    # -------------------------
+    lidar_topic: "/eve/lidar3d"
+    queue_size: 10
+
+    # -------------------------
+    # IMU input
+    # -------------------------
+    use_imu: true
+    imu_topic: "/eve/imu/data"
+    imu_gravity_mag: 9.81        # m/s², gravity norm used as constraint on ||g||
+    imu_gravity_init_n: 400      # static IMU samples for gravity init (1 s at 400 Hz)
+    imu_gravity_z_down: false    # set true if sensor z-axis points down
+    imu_use_accel: true          # accel integration (required for the Super-LIO
+                                 # ports below to be active; set false for the
+                                 # validated gyro-only fallback)
+    imu_timeout_sec: 0.5
+    imu_gyro_bias: [0.0, 0.0, 0.0]
+    imu_accel_bias: [0.0, 0.0, 0.0]
+
+    # -------------------------
+    # Processing control
+    # -------------------------
+    step_decimation: 2
+    max_scans: -1
+
+    # -------------------------
+    # Scan accumulation
+    # -------------------------
+    accumulate_between_decimation: false
+    accumulate_voxel: 0.1
+    accumulate_max_points: 1500000
+
+    # -------------------------
+    # Z handling (2-D mode)
+    # -------------------------
+    force_z_zero: true
+    soft_z_sigma: 0.05
+
+    # -------------------------
+    # ZUPT
+    # -------------------------
+    zupt_omega_thresh: 0.05
+    zupt_accel_thresh: 0.30
+    zupt_sigma_v: 0.01
+
+    # -------------------------
+    # Motion classification
+    # -------------------------
+    motion_omega_stationary: 0.05
+    motion_omega_rotating: 0.30
+    motion_accel_stationary: 0.30
+    motion_accel_translating: 0.80
+    motion_skip_stationary: true
+    motion_rot_noise_scale: 4.0
+    motion_trans_pos_noise_scale: 0.5
+
+    # -------------------------
+    # Map
+    # -------------------------
+    map_voxel: 0.1
+
+    # -------------------------
+    # Super-LIO ports (v2 only)
+    # -------------------------
+    level_init: true             # gravity-aligned, yaw-removed world frame at init
+    imu_auto_scale: true         # accel scale = g / ||mean static accel||
+    undistort_translation: true  # full undistortion (rotation + translation)
+
+    # -------------------------
+    # 18-DOF iESKF parameters
+    # -------------------------
+    ieskf_sigma_gyro:     0.000122   # Xsens MTi-630 gyro ARW [rad/s/√Hz]
+    ieskf_sigma_accel:    0.000589   # Xsens MTi-630 accel VRW [m/s²/√Hz]
+    ieskf_sigma_bg:       0.0001     # gyro bias random walk rate [rad/s/√Hz]
+    ieskf_sigma_ba:       0.001      # accel bias random walk rate [m/s²/√Hz]
+    ieskf_init_bg_cov:    0.02       # initial gyro bias variance [rad²/s²]
+    ieskf_init_ba_cov:    0.0001     # initial accel bias variance [m²/s⁴]
+    ieskf_init_g_cov:     0.01       # [NEW] initial gravity direction variance [m²/s⁴]
+    ieskf_max_iters:      3          # information-form SO(3) re-linearisation iterations
+    ieskf_meas_noise_pos: 0.05       # GICP position measurement noise [m]
+    ieskf_meas_noise_rot: 0.01       # GICP rotation measurement noise [rad]
+
+    # -------------------------
+    # Initial-guess fusion weights
+    # -------------------------
+    imu_base_weight: 0.3
+    nonrep_base_weight: 0.7
+
+    # -------------------------
+    # Degenerate-scan threshold
+    # -------------------------
+    gicp_min_conf: 0.25
+
+    # -------------------------
+    # GICP
+    # -------------------------
+    use_pctools_gicp: true
+    gicp_max_corr_distance: 2.0
+    gicp_voxel_size: 0.2
+    gicp_max_iterations: 50
+    gicp_submap_radius: 25.0
+    voxel_map_prune_radius: 80.0
+    voxel_map_max_voxels: 400000
+
+    # -------------------------
+    # Odometry output
+    # -------------------------
+    publish_odom: true
+    odom_topic: "/lio_v2/odom"
+    publish_map: true
+    map_topic: "/lio_v2/map"
+    publish_tf: false
+    map_frame: "map"
+    base_frame: "base_link"
+    map_publish_voxel: 0.15
+    map_publish_max_points: 800000
+    map_publish_every_n_scans: 1

@@ -1,0 +1,156 @@
+      [gt] auto-selected: /u/97/habibip1/unix/Downloads/indoor03_optitrack.csv
+Converting GT CSV → TUM …
+Converted 5577 poses → /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/indoor3_avia.tum  (skipped 0 bad rows)
+
+════════════════════════════════════════════════════════════
+  dataset  : tier
+  sequence : indoor3_avia
+  sensor   : Livox_avia
+  bag      : /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/indoor3_avia
+  gt       : /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/indoor3_avia.tum
+  result   : /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/result_regnonrep_imu.tum
+  duration : full bag
+  use_imu  : true
+════════════════════════════════════════════════════════════
+
+[1/3] Launching regnonrep algorithm …
+      PID: 156557
+[INFO] [launch]: All log files can be found below /u/97/habibip1/unix/.ros/log/2026-05-24-15-48-12-879578-l23-0499-156557
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [ros_lio.py-1]: process started with pid [156560]
+[INFO] [odom_to_tum.py-2]: process started with pid [156562]
+[odom_to_tum.py-2] [INFO] [1779626893.220208175] [lio_node]: [odom_to_tum] Writing TUM to: /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/lio_odom.tum (mode=w)
+[odom_to_tum.py-2] [INFO] [1779626893.220554535] [lio_node]: [odom_to_tum] Subscribing to: /lio/odom
+[odom_to_tum.py-2] [INFO] [1779626893.220833370] [lio_node]: [odom_to_tum] use_msg_time=True flush_every_n=10
+[ros_lio.py-1] /u/97/habibip1/unix/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+[ros_lio.py-1]   warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+[ros_lio.py-1] [INFO] [1779626894.500457756] [lio_node]: Using Pctools.apply_gicp_with_init
+[ros_lio.py-1] [INFO] [1779626894.505490066] [lio_node]: === LIO Node (Non-Rep + iESKF Point-LIO style) ===
+[ros_lio.py-1] [INFO] [1779626894.505679563] [lio_node]: lidar=/avia/livox/points  use_imu=True
+[ros_lio.py-1] [INFO] [1779626894.505843706] [lio_node]: imu=/avia/livox/imu  σ_gyro=0.001  σ_accel=0.01  σ_bg=0.0001  σ_ba=0.001
+[2/3] Playing bag at rate 0.1x …
+[INFO] [1779626895.878529068] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/indoor3_avia/indoor3_avia.db3' for READ_ONLY.
+[INFO] [1779626895.878559995] [rosbag2_player]: Set rate to 0.1
+[INFO] [1779626895.881245176] [rosbag2_player]: Adding keyboard callbacks.
+[INFO] [1779626895.881262834] [rosbag2_player]: Press SPACE for Pause/Resume
+[INFO] [1779626895.881266726] [rosbag2_player]: Press CURSOR_RIGHT for Play Next Message
+[INFO] [1779626895.881269966] [rosbag2_player]: Press CURSOR_UP for Increase Rate 10%
+[INFO] [1779626895.881272791] [rosbag2_player]: Press CURSOR_DOWN for Decrease Rate 10%
+[INFO] [1779626895.881502362] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/indoor3_avia/indoor3_avia.db3' for READ_ONLY.
+[ros_lio.py-1] [WARN] [1779626910.034094506] [lio_node]: Scan 14: low GICP conf (0.21) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626963.030376271] [lio_node]: Scan 67: low GICP conf (0.13) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626965.016196473] [lio_node]: Scan 69: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626966.003573058] [lio_node]: Scan 70: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626968.037731806] [lio_node]: Scan 72: low GICP conf (0.14) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626969.035950009] [lio_node]: Scan 73: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626970.011510454] [lio_node]: Scan 74: low GICP conf (0.20) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626971.991798248] [lio_node]: Scan 76: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626972.999849121] [lio_node]: Scan 77: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626974.018583255] [lio_node]: Scan 78: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626975.020342384] [lio_node]: Scan 79: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626976.047455339] [lio_node]: Scan 80: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626977.052102412] [lio_node]: Scan 81: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626978.066980034] [lio_node]: Scan 82: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626979.045007109] [lio_node]: Scan 83: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626980.035361202] [lio_node]: Scan 84: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626981.027421201] [lio_node]: Scan 85: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626982.012877736] [lio_node]: Scan 86: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626983.026624439] [lio_node]: Scan 87: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626984.037830042] [lio_node]: Scan 88: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626985.066477054] [lio_node]: Scan 89: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626986.173894488] [lio_node]: Scan 90: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626987.085816313] [lio_node]: Scan 91: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626988.086789959] [lio_node]: Scan 92: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626989.094600318] [lio_node]: Scan 93: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626990.125268963] [lio_node]: Scan 94: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626991.084725044] [lio_node]: Scan 95: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626992.127843856] [lio_node]: Scan 96: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626993.102573231] [lio_node]: Scan 97: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626994.133254719] [lio_node]: Scan 98: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626995.113366710] [lio_node]: Scan 99: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626996.117932357] [lio_node]: Scan 100: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626997.100831301] [lio_node]: Scan 101: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626998.126341352] [lio_node]: Scan 102: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779626999.113481433] [lio_node]: Scan 103: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627000.114230680] [lio_node]: Scan 104: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627001.106022388] [lio_node]: Scan 105: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627002.100523236] [lio_node]: Scan 106: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627003.086218613] [lio_node]: Scan 107: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627004.097803802] [lio_node]: Scan 108: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627005.060965356] [lio_node]: Scan 109: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627006.046222701] [lio_node]: Scan 110: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627007.044377659] [lio_node]: Scan 111: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627008.086680991] [lio_node]: Scan 112: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627009.096324956] [lio_node]: Scan 113: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627010.019746959] [lio_node]: Scan 114: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627010.995839618] [lio_node]: Scan 115: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627012.006203679] [lio_node]: Scan 116: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627015.019022670] [lio_node]: Scan 119: low GICP conf (0.19) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627017.004549017] [lio_node]: Scan 121: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627017.994137793] [lio_node]: Scan 122: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627030.003326391] [lio_node]: Scan 134: low GICP conf (0.15) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627031.006586280] [lio_node]: Scan 135: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627287.015625311] [lio_node]: Scan 391: low GICP conf (0.13) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627288.014910885] [lio_node]: Scan 392: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627289.045517497] [lio_node]: Scan 393: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627290.048369719] [lio_node]: Scan 394: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627291.038381551] [lio_node]: Scan 395: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627292.063697648] [lio_node]: Scan 396: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627293.104292761] [lio_node]: Scan 397: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627294.125106899] [lio_node]: Scan 398: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627295.215494878] [lio_node]: Scan 399: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627296.334064903] [lio_node]: Scan 400: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627297.419657247] [lio_node]: Scan 401: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627298.423484069] [lio_node]: Scan 402: low GICP conf (0.10) — boosting measurement noise ×20
+[ros_lio.py-1] [WARN] [1779627299.430621364] [lio_node]: Scan 403: low GICP conf (0.10) — boosting measurement noise ×20
+      Bag finished. Waiting 30s for algorithm to flush …
+      Algorithm stopped.
+      Odometry saved → /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/result_regnonrep_imu.tum
+      Aligning result timestamps to GT time base …
+Offset applied: 1645370379.370 s  (odom_t0=910.600 -> gt_t0=1645371289.970)
+
+[3/4] Evaluating …
+
+--------------------------------------------------------------------------------
+Loaded 5577 stamps and poses from: /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/indoor3_avia.tum
+Loaded 467 stamps and poses from: /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/result_regnonrep_imu.tum
+--------------------------------------------------------------------------------
+Synchronizing trajectories...
+Found 467 of max. 467 possible matching timestamps between...
+	/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/indoor3_avia.tum
+and:	/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/result_regnonrep_imu.tum
+..with max. time diff.: 0.05 (s) and time offset: 0.0 (s).
+--------------------------------------------------------------------------------
+Aligning using Umeyama's method...
+Rotation of alignment:
+[[ 0.93646781  0.33908276  0.08972693]
+ [-0.33890651  0.80880712  0.48059693]
+ [ 0.09039035 -0.4804726   0.87233919]]
+Translation of alignment:
+[2.97280946 2.90217586 1.32424533]
+Scale correction: 1.0
+--------------------------------------------------------------------------------
+Compared 467 absolute pose pairs.
+Calculating APE for translation part pose relation...
+--------------------------------------------------------------------------------
+APE w.r.t. translation part (m)
+(with SE(3) Umeyama alignment)
+
+       max	3.916946
+      mean	2.214800
+    median	1.915998
+       min	1.195647
+      rmse	2.317960
+       sse	2509.163181
+       std	0.683815
+
+
+[4/4] Plotting trajectory …
+/u/97/habibip1/unix/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+Saved trajectory plot → /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/trajectory_plot.png
+
+════════════════════════════════════════════════════════════
+  Done: indoor3_avia / Livox_avia
+  plot : /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor3_avia/trajectory_plot.png
+════════════════════════════════════════════════════════════

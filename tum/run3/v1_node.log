@@ -1,0 +1,64 @@
+[INFO] [1781524947.188391955] [lio_node]: [debug] Writing per-scan CSV → /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/run3/v1.csv
+/u/97/habibip1/unix/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+[INFO] [1781524947.362024934] [lio_node]: Using Pctools.apply_gicp_with_init_full (H matrix)
+[INFO] [1781524947.366916018] [lio_node]: === LIO Node (Non-Rep + iESKF Point-LIO style) ===
+[INFO] [1781524947.367097690] [lio_node]: lidar=/avia/livox/points  use_imu=True
+[INFO] [1781524947.367249904] [lio_node]: imu=/avia/livox/imu  accel_scale=9.81  σ_gyro=0.001  σ_accel=0.01  σ_bg=0.0001  σ_ba=0.001
+[INFO] [1781524947.367398467] [lio_node]: IIR filter: 2nd-order Butterworth LP, cutoff=25 Hz, approx group_delay=20 ms (was 100 ms with 41-tap FIR), propagation at full 200 Hz
+[INFO] [1781524952.085437571] [lio_node]: Static init complete — g_world=[-0.017, 0.070, 9.754] norm=9.754 m/s²  |  gyro_bias=[0.0012, 0.0002, 0.0007] rad/s
+[WARN] [1781525040.678510938] [lio_node]: Scan 275: low GICP conf (0.10), χ²=1.0
+[WARN] [1781525047.001107854] [lio_node]: Scan 294: low GICP conf (0.23), χ²=0.5
+[WARN] [1781525052.015857598] [lio_node]: Scan 309: low GICP conf (0.16), χ²=0.3
+[WARN] [1781525057.397981709] [lio_node]: Scan 325: GICP update REJECTED (χ²=3963.0 > 50.0) — conf=0.22, IMU holds
+[WARN] [1781525057.761056311] [lio_node]: Scan 326: GICP update REJECTED (χ²=2208.0 > 50.0) — conf=0.26, IMU holds
+[WARN] [1781525058.060229538] [lio_node]: Scan 327: GICP update REJECTED (χ²=1739.9 > 50.0) — conf=0.59, IMU holds
+[WARN] [1781525058.372307591] [lio_node]: Scan 328: GICP update REJECTED (χ²=737.5 > 50.0) — conf=0.50, IMU holds
+[WARN] [1781525058.706327151] [lio_node]: Scan 329: GICP update REJECTED (χ²=132.7 > 50.0) — conf=0.10, IMU holds
+[WARN] [1781525059.050144233] [lio_node]: Scan 330: GICP update REJECTED (χ²=353.2 > 50.0) — conf=0.56, IMU holds
+[WARN] [1781525059.384829797] [lio_node]: Scan 331: GICP update REJECTED (χ²=247.9 > 50.0) — conf=0.55, IMU holds
+[WARN] [1781525059.723642678] [lio_node]: Scan 332: GICP update REJECTED (χ²=75.3 > 50.0) — conf=0.47, IMU holds
+[WARN] [1781525060.409038174] [lio_node]: Scan 334: GICP update REJECTED (χ²=1621.3 > 50.0) — conf=0.10, IMU holds
+[WARN] [1781525060.764791938] [lio_node]: Scan 335: GICP update REJECTED (χ²=4479.2 > 50.0) — conf=0.10, IMU holds
+[WARN] [1781525061.065829238] [lio_node]: Scan 336: GICP update REJECTED (χ²=1711.9 > 50.0) — conf=0.10, IMU holds
+[WARN] [1781525061.719322917] [lio_node]: Scan 338: GICP update REJECTED (χ²=1575.6 > 50.0) — conf=0.10, IMU holds
+[WARN] [1781525062.084127799] [lio_node]: Scan 339: GICP update REJECTED (χ²=956.2 > 50.0) — conf=0.10, IMU holds
+[WARN] [1781525062.383864880] [lio_node]: Scan 340: GICP update REJECTED (χ²=562.5 > 50.0) — conf=0.10, IMU holds
+[WARN] [1781525064.162145234] [lio_node]: Scan 345: GICP update REJECTED (χ²=6021.5 > 50.0) — conf=0.18, IMU holds
+[WARN] [1781525081.146633950] [lio_node]: Scan 389: low GICP conf (0.17), χ²=0.5
+[WARN] [1781525116.495466061] [lio_node]: Scan 473: low GICP conf (0.10), χ²=0.7
+[WARN] [1781525118.438843683] [lio_node]: Scan 475: low GICP conf (0.24), χ²=2.9
+[WARN] [1781525119.140672823] [lio_node]: Scan 476: low GICP conf (0.10), χ²=2.4
+[WARN] [1781525120.102935781] [lio_node]: Scan 477: low GICP conf (0.10), χ²=2.3
+[WARN] [1781525122.207140476] [lio_node]: Scan 479: low GICP conf (0.10), χ²=1.0
+[WARN] [1781525123.256283222] [lio_node]: Scan 480: low GICP conf (0.10), χ²=5.8
+[WARN] [1781525125.129348456] [lio_node]: Scan 482: low GICP conf (0.10), χ²=8.1
+[WARN] [1781525126.456192148] [lio_node]: Scan 484: low GICP conf (0.10), χ²=1.0
+[WARN] [1781525138.816949045] [lio_node]: Scan 510: low GICP conf (0.10), χ²=0.8
+[WARN] [1781525159.316386736] [lio_node]: Scan 551: GICP update REJECTED (χ²=80.4 > 50.0) — conf=0.95, IMU holds
+[WARN] [1781525160.403129641] [lio_node]: Scan 553: GICP update REJECTED (χ²=82.1 > 50.0) — conf=0.92, IMU holds
+[WARN] [1781525160.950713093] [lio_node]: Scan 554: GICP update REJECTED (χ²=186.3 > 50.0) — conf=0.69, IMU holds
+[WARN] [1781525226.631622807] [lio_node]: Scan 678: low GICP conf (0.10), χ²=18.8
+[WARN] [1781525238.553681164] [lio_node]: Scan 696: low GICP conf (0.10), χ²=5.5
+[WARN] [1781525266.264607768] [lio_node]: Scan 739: low GICP conf (0.11), χ²=13.2
+[WARN] [1781525268.023673561] [lio_node]: Scan 740: low GICP conf (0.10), χ²=2.7
+[WARN] [1781525269.677217876] [lio_node]: Scan 741: low GICP conf (0.10), χ²=1.6
+[WARN] [1781525271.043788409] [lio_node]: Scan 742: GICP update REJECTED (χ²=54.1 > 50.0) — conf=0.21, IMU holds
+[WARN] [1781525272.313177928] [lio_node]: Scan 743: low GICP conf (0.10), χ²=17.8
+[WARN] [1781525273.109703440] [lio_node]: Scan 744: low GICP conf (0.10), χ²=3.6
+[WARN] [1781525277.085854075] [lio_node]: Scan 749: low GICP conf (0.12), χ²=0.2
+[WARN] [1781525287.649608344] [lio_node]: Scan 764: low GICP conf (0.17), χ²=0.0
+[WARN] [1781525301.882137300] [lio_node]: Scan 785: low GICP conf (0.10), χ²=0.6
+[WARN] [1781525324.582537944] [lio_node]: Scan 820: low GICP conf (0.10), χ²=0.2
+Traceback (most recent call last):
+  File "/u/97/habibip1/unix/ros2_ws/install/regnonrep/lib/regnonrep/ros_lio.py", line 2050, in <module>
+    main()
+  File "/u/97/habibip1/unix/ros2_ws/install/regnonrep/lib/regnonrep/ros_lio.py", line 2046, in main
+    rclpy.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+    return context.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241

@@ -19,8 +19,33 @@ def generate_launch_description():
         Node(
             package="regnonrep",
             executable="odom_to_tum.py",
-            name="lio_node",      # matches YAML key so odom_to_tum reads the right topic
-            parameters=[params],
+            name="odom_to_tum_fused",
+            parameters=[{
+                "odom_to_tum": {
+                    "enabled": True,
+                    "odom_topic": "/lio/odom",
+                    "output_path": "/u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/lio_odom.tum",
+                    "flush_every_n": 10,
+                    "use_msg_time": True,
+                    "append": False,
+                }
+            }],
+            output="screen",
+        ),
+        Node(
+            package="regnonrep",
+            executable="odom_to_tum.py",
+            name="odom_to_tum_imu_only",
+            parameters=[{
+                "odom_to_tum": {
+                    "enabled": True,
+                    "odom_topic": "/lio/odom_imu_only",
+                    "output_path": "/u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/lio_imuonly.tum",
+                    "flush_every_n": 10,
+                    "use_msg_time": True,
+                    "append": False,
+                }
+            }],
             output="screen",
         ),
     ])

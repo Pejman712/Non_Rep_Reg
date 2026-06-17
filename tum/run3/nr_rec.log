@@ -1,0 +1,16 @@
+[INFO] [1781524291.101276763] [my_node]: [odom_to_tum] Writing TUM to: /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/run3/nonrep.tum (mode=w)
+[INFO] [1781524291.101530218] [my_node]: [odom_to_tum] Subscribing to: /lidar/odom
+[INFO] [1781524291.101691307] [my_node]: [odom_to_tum] use_msg_time=True flush_every_n=1
+Traceback (most recent call last):
+  File "/u/97/habibip1/unix/ros2_ws/install/regnonrep/lib/regnonrep/odom_to_tum.py", line 149, in <module>
+    main()
+  File "/u/97/habibip1/unix/ros2_ws/install/regnonrep/lib/regnonrep/odom_to_tum.py", line 145, in main
+    rclpy.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+    return context.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
+[ros2run]: Process exited with failure 1

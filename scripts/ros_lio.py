@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
 """
 ROS2 LiDAR-Inertial Odometry (LIO) — Point-LIO-style iESKF
 
@@ -24,6 +24,7 @@ from typing import Deque, Dict, List, Optional, Tuple
 import numpy as np
 import open3d as o3d
 from scipy.spatial.distance import cdist
+from scipy.signal import butter, sosfilt, sosfilt_zi
 from sklearn.decomposition import PCA
 
 import rclpy
@@ -81,53 +82,39 @@ class NonRepetitiveLiDARProcessor:
         return out
 
     def extract_scan_features(self, cloud: o3d.geometry.PointCloud) -> Dict:
+        """Fast lightweight feature extraction (no FPFH, no RANSAC, no normals).
+
+        Caps input to 500 random points before any computation so that all ops
+        are O(500) regardless of scan density.  Removed: FPFH O(N·K), RANSAC
+        O(N·iters), normal estimation O(N log N).  Retained: centroid, bbox,
+        height profile, PCA shape, nearest-neighbour density on 50-pt sample.
+        compute_feature_similarity gracefully skips absent keys (fpfh_histogram,
+        dominant_plane) so nothing downstream breaks.
+        """
         features: Dict = {}
         try:
             points = np.asarray(cloud.points)
             if len(points) == 0:
                 return features
 
+            # Cap for speed — all subsequent ops are O(n_sample)
+            n_sample = min(500, len(points))
+            if len(points) > n_sample:
+                idx = np.random.choice(len(points), n_sample, replace=False)
+                pts = points[idx]
+            else:
+                pts = points
+
             features['point_count'] = int(len(points))
-            features['centroid'] = np.mean(points, axis=0)
-            features['std_dev'] = np.std(points, axis=0)
+            features['centroid'] = np.mean(pts, axis=0)
+            features['std_dev'] = np.std(pts, axis=0)
             features['bounding_box'] = {
-                'min': np.min(points, axis=0),
-                'max': np.max(points, axis=0),
-                'extent': np.max(points, axis=0) - np.min(points, axis=0),
+                'min': np.min(pts, axis=0),
+                'max': np.max(pts, axis=0),
+                'extent': np.max(pts, axis=0) - np.min(pts, axis=0),
             }
 
-            cloud_ds = cloud.voxel_down_sample(self.voxel_size) if len(points) > 1000 else cloud
-
-            if len(cloud_ds.points) > 10:
-                cloud_ds.estimate_normals(
-                    search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=self.normal_radius, max_nn=30)
-                )
-                normals = np.asarray(cloud_ds.normals)
-                if len(normals) > 0:
-                    features['normal_distribution'] = {
-                        'mean': np.mean(normals, axis=0),
-                        'std': np.std(normals, axis=0),
-                    }
-
-            if len(cloud_ds.points) > 50 and cloud_ds.has_normals():
-                fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-                    cloud_ds,
-                    o3d.geometry.KDTreeSearchParamHybrid(radius=self.fpfh_radius, max_nn=100),
-                )
-                features['fpfh_histogram'] = np.asarray(fpfh.data).mean(axis=1)
-
-            if len(cloud_ds.points) > 100:
-                plane_model, inliers = cloud_ds.segment_plane(
-                    distance_threshold=0.1, ransac_n=3, num_iterations=1000
-                )
-                if len(inliers) > 50:
-                    features['dominant_plane'] = {
-                        'normal': plane_model[:3],
-                        'distance': plane_model[3],
-                        'inlier_ratio': float(len(inliers) / len(cloud_ds.points)),
-                    }
-
-            z = points[:, 2]
+            z = pts[:, 2]
             features['height_profile'] = {
                 'min_height': float(np.min(z)),
                 'max_height': float(np.max(z)),
@@ -135,22 +122,27 @@ class NonRepetitiveLiDARProcessor:
                 'height_variance': float(np.var(z)),
             }
 
-            if len(points) > 100:
-                sample_idx = np.random.choice(len(points), min(100, len(points)), replace=False)
-                sample_pts = points[sample_idx]
-                distances = cdist(sample_pts, points)
-                k_nearest = np.sort(distances, axis=1)[:, 1:6]
-                features['local_density'] = float(np.mean(k_nearest))
-
-            if len(points) > 20:
-                pca = PCA(n_components=3)
-                pca.fit(points)
+            if len(pts) >= 3:
+                pca = PCA(n_components=min(3, pts.shape[1]))
+                pca.fit(pts)
+                evr = pca.explained_variance_ratio_
+                # Pad to length 3 if cloud is planar (rank-2)
+                while len(evr) < 3:
+                    evr = np.append(evr, 0.0)
                 features['shape_complexity'] = {
-                    'explained_variance_ratio': pca.explained_variance_ratio_,
-                    'linearity': float(pca.explained_variance_ratio_[0]),
-                    'planarity': float(pca.explained_variance_ratio_[1]),
-                    'sphericity': float(pca.explained_variance_ratio_[2]),
+                    'explained_variance_ratio': evr,
+                    'linearity': float(evr[0]),
+                    'planarity': float(evr[1]),
+                    'sphericity': float(evr[2]),
                 }
+
+            # Nearest-neighbour density on tiny 50-pt sub-sample (O(50²))
+            if len(pts) >= 10:
+                tiny = pts[:min(50, len(pts))]
+                diff = tiny[:, np.newaxis, :] - tiny[np.newaxis, :, :]  # (N, N, 3)
+                dists = np.sqrt(np.sum(diff ** 2, axis=-1))
+                np.fill_diagonal(dists, np.inf)
+                features['local_density'] = float(np.mean(np.min(dists, axis=1)))
 
         except Exception as e:
             features['extraction_error'] = str(e)
@@ -334,6 +326,117 @@ class NonRepetitiveLiDARProcessor:
 
 
 # =============================================================================
+# VoxelHashMap — bounded O(1)-insert map with radius pruning
+# =============================================================================
+class VoxelHashMap:
+    """
+    Replaces the unbounded Open3D PointCloud accumulation.
+
+    Storage model:
+      Each occupied voxel stores the centroid of the last point inserted into
+      it (one point per cell).  This is equivalent to voxel downsampling at
+      insert-time without any periodic batch operation.
+
+    Complexity:
+      insert()      O(N)          N = points in current scan
+      prune_far()   O(V) numpy   V = occupied voxels (bounded by max_voxels)
+      get_submap()  O(V) numpy   V = occupied voxels
+      to_open3d()   O(V)
+
+    Memory: max_voxels × (3 float32 centroid + 3 float32 colour) ≈ 14 MB at 400k.
+    """
+
+    def __init__(self,
+                 voxel_size: float = 0.15,
+                 prune_radius: float = 80.0,
+                 max_voxels: int = 400_000):
+        self._vx = float(voxel_size)
+        self._prune_r2 = float(prune_radius) ** 2
+        self._max = int(max_voxels)
+        # (ix, iy, iz) → centroid np.ndarray shape (3,) float32
+        self._cells: Dict[tuple, np.ndarray] = {}
+        self._colors: Dict[tuple, np.ndarray] = {}
+        # insertion-order list of keys for FIFO eviction when > max_voxels
+        self._order: List[tuple] = []
+
+    def insert(self, pts: np.ndarray,
+               colors: Optional[np.ndarray] = None) -> None:
+        if pts.shape[0] == 0:
+            return
+        pts32 = pts.astype(np.float32, copy=False)
+        keys_arr = (pts32 / self._vx).astype(np.int32)
+        for i in range(len(pts32)):
+            k = (int(keys_arr[i, 0]), int(keys_arr[i, 1]), int(keys_arr[i, 2]))
+            if k not in self._cells:
+                self._order.append(k)
+            self._cells[k] = pts32[i]
+            if colors is not None and i < len(colors):
+                self._colors[k] = colors[i].astype(np.float32, copy=False)
+        # FIFO eviction when over capacity
+        while len(self._cells) > self._max:
+            old = self._order.pop(0)
+            self._cells.pop(old, None)
+            self._colors.pop(old, None)
+
+    def prune_far(self, center: np.ndarray) -> int:
+        """Remove voxels beyond prune_radius from center.  Returns count removed."""
+        if not self._cells:
+            return 0
+        keys = list(self._cells.keys())
+        pts = np.array([self._cells[k] for k in keys], dtype=np.float32)
+        diff = pts - center.astype(np.float32)
+        far_mask = np.sum(diff ** 2, axis=1) > self._prune_r2
+        del_count = 0
+        for i, k in enumerate(keys):
+            if far_mask[i]:
+                del self._cells[k]
+                self._colors.pop(k, None)
+                del_count += 1
+        # Rebuild insertion-order list (rare operation)
+        if del_count > 0:
+            valid = set(self._cells.keys())
+            self._order = [k for k in self._order if k in valid]
+        return del_count
+
+    def get_submap(self, center: np.ndarray, radius: float) -> o3d.geometry.PointCloud:
+        """Return an Open3D cloud of all voxels within radius of center."""
+        if not self._cells:
+            return o3d.geometry.PointCloud()
+        pts = np.array(list(self._cells.values()), dtype=np.float32)
+        diff = pts - center.astype(np.float32)
+        in_mask = np.sum(diff ** 2, axis=1) <= float(radius) ** 2
+        pts_in = pts[in_mask]
+        cloud = o3d.geometry.PointCloud()
+        if len(pts_in) > 0:
+            cloud.points = o3d.utility.Vector3dVector(pts_in.astype(np.float64))
+        return cloud
+
+    def to_open3d(self, max_points: int = 800_000) -> o3d.geometry.PointCloud:
+        """Materialise the full map as an Open3D cloud (for publishing)."""
+        if not self._cells:
+            return o3d.geometry.PointCloud()
+        pts = np.array(list(self._cells.values()), dtype=np.float64)
+        has_color = bool(self._colors)
+        if has_color:
+            cols = np.array(
+                [self._colors.get(k, np.array([0.5, 0.5, 0.5], dtype=np.float32))
+                 for k in self._cells], dtype=np.float64)
+        if len(pts) > max_points:
+            idx = np.random.choice(len(pts), max_points, replace=False)
+            pts = pts[idx]
+            if has_color:
+                cols = cols[idx]
+        cloud = o3d.geometry.PointCloud()
+        cloud.points = o3d.utility.Vector3dVector(pts)
+        if has_color:
+            cloud.colors = o3d.utility.Vector3dVector(cols)
+        return cloud
+
+    def __len__(self) -> int:
+        return len(self._cells)
+
+
+# =============================================================================
 # SO(3) helpers
 # =============================================================================
 def so3_exp(omega_dt: np.ndarray) -> np.ndarray:
@@ -451,6 +554,9 @@ class IESKF:
         self._p_last = np.zeros(3)
         self._R_last = np.eye(3)
 
+        # Full snapshot for delayed-update repropagate
+        self._snap: Optional[dict] = None
+
     # ------------------------------------------------------------------
     # Static initialisation: gravity + gyro bias (fix 2 + fix 4)
     # ------------------------------------------------------------------
@@ -474,7 +580,7 @@ class IESKF:
         if self.gravity_initialized:
             return False
         a_c = accel - self.ba
-        if abs(float(np.linalg.norm(a_c)) - self.gravity_mag) < 0.5:
+        if abs(float(np.linalg.norm(a_c)) - self.gravity_mag) < 1.5:
             self._gravity_samples.append(R_world @ a_c)
             self._gyro_samples.append(omega.copy())
             if len(self._gravity_samples) >= self.gravity_init_n:
@@ -554,6 +660,27 @@ class IESKF:
         self._p_last = self.p.copy()
         self._R_last = self.R.copy()
 
+    # ------------------------------------------------------------------
+    # Full state snapshot for delayed-update repropagate
+    # ------------------------------------------------------------------
+    def save_full_snapshot(self) -> dict:
+        return {
+            'p': self.p.copy(), 'v': self.v.copy(), 'R': self.R.copy(),
+            'bg': self.bg.copy(), 'ba': self.ba.copy(),
+            'P': self.P.copy(),
+            '_p_last': self._p_last.copy(), '_R_last': self._R_last.copy(),
+        }
+
+    def restore_full_snapshot(self, snap: dict) -> None:
+        self.p  = snap['p'].copy()
+        self.v  = snap['v'].copy()
+        self.R  = snap['R'].copy()
+        self.bg = snap['bg'].copy()
+        self.ba = snap['ba'].copy()
+        self.P  = snap['P'].copy()
+        self._p_last = snap['_p_last'].copy()
+        self._R_last = snap['_R_last'].copy()
+
     def get_predicted_relative_transform(self) -> np.ndarray:
         """
         Return T_B1_B2 (4×4) — relative transform from IMU propagation
@@ -572,35 +699,46 @@ class IESKF:
     def update(
         self,
         T_gicp: np.ndarray,
-        meas_noise_pos: float,
-        meas_noise_rot: float,
-    ) -> None:
+        R_n: np.ndarray,
+        chi2_threshold: float = 22.46,
+    ) -> Tuple[bool, float]:
         """
         Iterated EKF measurement update using the GICP relative transform.
 
-        T_gicp          4×4 T_B1_B2 from GICP (maps current B2 → previous B1)
-        meas_noise_pos  position measurement std [m]  — scaled by GICP confidence
-        meas_noise_rot  rotation measurement std [rad] — scaled by GICP confidence
+        T_gicp          4×4 T_B1_B2 (maps current body B2 → previous body B1)
+        R_n             6×6 measurement noise covariance [pos(3), rot(3)] order
+        chi2_threshold  Mahalanobis gating threshold (chi²(6, 0.999) ≈ 22.46)
+
+        Returns (accepted, chi2_val).
         """
-        # Convert relative GICP transform to absolute pose measurement
+        # Absolute pose measurement from relative GICP transform
+        # p_meas = p_B1 + R_B1 * t_{B1←B2}   (SE(3) composition)
         p_meas = self._p_last + self._R_last @ T_gicp[:3, 3]
         R_meas = self._R_last @ T_gicp[:3, :3]
 
-        # Measurement noise covariance R_n (6×6)
-        R_n = np.zeros((6, 6))
-        R_n[0:3, 0:3] = np.eye(3) * (meas_noise_pos ** 2)
-        R_n[3:6, 3:6] = np.eye(3) * (meas_noise_rot ** 2)
-
-        # Measurement Jacobian H (6×15):  H = [I 0 0 0 0 ; 0 0 I 0 0]
-        # H is constant (doesn't depend on state), so K is computed once.
+        # Measurement Jacobian H (6×15):  [pos|vel|rot|bg|ba]
+        #   pos rows:  dh/dp = I    (identity on position block)
+        #   rot rows:  dh/dθ = I    (identity on rotation error block)
         H = np.zeros((6, 15))
-        H[0:3, 0:3] = np.eye(3)   # position row: measurement = p + δp
-        H[3:6, 6:9] = np.eye(3)   # rotation row: measurement = θ + δθ
+        H[0:3, 0:3] = np.eye(3)
+        H[3:6, 6:9] = np.eye(3)
 
+        # Innovation covariance and chi-squared gating
         S = H @ self.P @ H.T + R_n
-        K = self.P @ H.T @ np.linalg.inv(S)
 
-        # Iterate: re-evaluate the SO(3) innovation around the current estimate
+        # Pre-update innovation at nominal state
+        z_p0 = p_meas - self.p
+        z_R0 = so3_log(self.R.T @ R_meas)
+        z0   = np.concatenate([z_p0, z_R0])
+        S_inv = np.linalg.inv(S)
+        chi2  = float(z0 @ S_inv @ z0)
+
+        if chi2 > chi2_threshold:
+            return False, chi2   # outlier — skip update, keep propagated state
+
+        K = self.P @ H.T @ S_inv
+
+        # Iterated update: re-linearise on SO(3) around current iterate
         p_k  = self.p.copy()
         v_k  = self.v.copy()
         R_k  = self.R.copy()
@@ -609,25 +747,25 @@ class IESKF:
 
         for _ in range(self.max_iters):
             z_p = p_meas - p_k
-            z_R = so3_log(R_k.T @ R_meas)      # rotation error on manifold
+            z_R = so3_log(R_k.T @ R_meas)   # proper SO(3) residual
             z   = np.concatenate([z_p, z_R])
 
             dx = K @ z
 
             p_k  = p_k  + dx[0:3]
             v_k  = v_k  + dx[3:6]
-            R_k  = R_k  @ so3_exp(dx[6:9])
+            R_k  = R_k  @ so3_exp(dx[6:9])  # right perturbation on SO(3)
             bg_k = bg_k + dx[9:12]
             ba_k = ba_k + dx[12:15]
 
             if float(np.linalg.norm(dx)) < self.conv_threshold:
                 break
 
-        # Commit nominal state
+        # Commit
         self.p  = p_k
         self.v  = v_k
         U, _, Vt = np.linalg.svd(R_k)
-        self.R  = U @ Vt
+        self.R  = U @ Vt                    # project onto SO(3)
         self.bg = bg_k
         self.ba = ba_k
 
@@ -635,9 +773,60 @@ class IESKF:
         I_KH   = np.eye(15) - K @ H
         self.P = I_KH @ self.P @ I_KH.T + K @ R_n @ K.T
 
+        return True, chi2
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # ZUPT — zero-velocity pseudo-measurement
+    # ------------------------------------------------------------------
+    def zupt_update(self, sigma_v: float = 0.01) -> None:
+        """Inject v = 0 as a pseudo-measurement when the robot is stationary.
+
+        H selects the velocity block; the Kalman gain propagates corrections
+        back to accel bias (ba) through P[v, ba] cross-covariance accumulated
+        during propagation, bounding drift during GICP-failure windows.
+        """
+        H = np.zeros((3, 15))
+        H[:, 3:6] = np.eye(3)
+        R_n = np.eye(3) * (sigma_v ** 2)
+        S   = H @ self.P @ H.T + R_n
+        K   = self.P @ H.T @ np.linalg.inv(S)
+        dx  = K @ (-self.v)                     # innovation: 0 - v_predicted
+        self.p  += dx[0:3]
+        self.v  += dx[3:6]
+        self.R   = self.R @ so3_exp(dx[6:9])
+        self.bg += dx[9:12]
+        self.ba += dx[12:15]
+        I_KH   = np.eye(15) - K @ H
+        self.P = I_KH @ self.P @ I_KH.T + K @ R_n @ K.T
+
+    # ------------------------------------------------------------------
+    # Soft floor constraint — z pseudo-measurement
+    # ------------------------------------------------------------------
+    def soft_z_update(self, sigma_z: float = 0.05) -> None:
+        """Soft floor constraint: p_z = 0 with uncertainty sigma_z [m].
+
+        Unlike hard zeroing this lets a z-residual exist, which drives
+        ba_z correction through the P[p_z, ba_z] cross-covariance and
+        makes the z-accel bias observable.  sigma_z controls the trade-off:
+        tight (0.02 m) → near-rigid floor; loose (0.2 m) → gentle nudge.
+        """
+        H = np.zeros((1, 15))
+        H[0, 2] = 1.0                           # observe p_z
+        R_n = np.array([[sigma_z ** 2]])
+        S   = H @ self.P @ H.T + R_n
+        K   = self.P @ H.T @ np.linalg.inv(S)
+        dx  = K @ np.array([0.0 - self.p[2]])   # innovation: 0 - p_z
+        self.p  += dx[0:3]
+        self.v  += dx[3:6]
+        self.R   = self.R @ so3_exp(dx[6:9])
+        self.bg += dx[9:12]
+        self.ba += dx[12:15]
+        I_KH   = np.eye(15) - K @ H
+        self.P = I_KH @ self.P @ I_KH.T + K @ R_n @ K.T
+
     @property
     def is_gyro_ready(self) -> bool:
         return True
@@ -730,25 +919,56 @@ def _normalize_intensity(intensity: np.ndarray) -> np.ndarray:
 # ROS2 ↔ Open3D conversions (unchanged)
 # =============================================================================
 def pointcloud2_to_xyz_i(msg: PointCloud2) -> Tuple[np.ndarray, np.ndarray]:
+    xyz, intensity, _ = pointcloud2_to_xyz_i_stamps(msg)
+    return xyz, intensity
+
+
+def pointcloud2_to_xyz_i_stamps(
+    msg: PointCloud2,
+) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    """Extract xyz, intensity, and optional per-point timestamps from a PointCloud2.
+
+    Per-point timestamps are returned as float64 seconds if the message has a
+    'timestamp' (uint64 ns) or 't' field; otherwise the third return is None.
+    """
     n_pts = msg.width * msg.height
     if n_pts == 0:
-        return np.empty((0, 3), dtype=np.float32), np.empty((0,), dtype=np.float32)
+        return (np.empty((0, 3), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+                None)
+    field_map  = {f.name: f for f in msg.fields}
     field_offsets = {f.name: f.offset for f in msg.fields}
     step = msg.point_step
-    raw = np.frombuffer(msg.data, dtype=np.uint8).reshape(n_pts, step)
+    raw  = np.frombuffer(msg.data, dtype=np.uint8).reshape(n_pts, step)
 
-    def _col(off: int) -> np.ndarray:
+    def _col_f32(off: int) -> np.ndarray:
         return raw[:, off:off + 4].copy().ravel().view(np.float32)
 
     xyz = np.column_stack([
-        _col(field_offsets['x']),
-        _col(field_offsets['y']),
-        _col(field_offsets['z']),
+        _col_f32(field_offsets['x']),
+        _col_f32(field_offsets['y']),
+        _col_f32(field_offsets['z']),
     ])
-    intensity = (_col(field_offsets['intensity']) if 'intensity' in field_offsets
+    intensity = (_col_f32(field_offsets['intensity']) if 'intensity' in field_offsets
                  else np.zeros(n_pts, dtype=np.float32))
+
+    # Per-point timestamp: Livox driver writes uint64 nanoseconds in 'timestamp' or 't'
+    stamps_sec: Optional[np.ndarray] = None
+    ts_field = 'timestamp' if 'timestamp' in field_map else ('t' if 't' in field_map else None)
+    if ts_field is not None:
+        off = field_offsets[ts_field]
+        datatype = field_map[ts_field].datatype
+        if datatype == 8:   # UINT64
+            stamps_ns = raw[:, off:off + 8].copy().ravel().view(np.uint64)
+            stamps_sec = stamps_ns.astype(np.float64) * 1e-9
+        elif datatype == 7: # FLOAT64
+            stamps_sec = raw[:, off:off + 8].copy().ravel().view(np.float64).copy()
+        elif datatype == 6: # FLOAT32 (rare)
+            stamps_sec = raw[:, off:off + 4].copy().ravel().view(np.float32).astype(np.float64)
+
     valid = np.isfinite(xyz).all(axis=1)
-    return xyz[valid], intensity[valid]
+    stamps_out = stamps_sec[valid] if stamps_sec is not None else None
+    return xyz[valid].astype(np.float32), intensity[valid], stamps_out
 
 
 def xyzi_to_open3d_cloud(xyz: np.ndarray, intensity: np.ndarray) -> o3d.geometry.PointCloud:
@@ -780,39 +1000,6 @@ def open3d_cloud_to_pointcloud2_xyzi(cloud: o3d.geometry.PointCloud, header: Hea
     return pc2.create_cloud(header, fields, data)
 
 
-# =============================================================================
-# Open3D visualizer (unchanged)
-# =============================================================================
-class LiveOpen3D:
-    def __init__(self, window_name: str = "LIO Map", width: int = 1400, height: int = 900):
-        self.vis = o3d.visualization.Visualizer()
-        self.vis.create_window(window_name=window_name, width=width, height=height)
-        self.latest = o3d.geometry.PointCloud()
-        self.map = o3d.geometry.PointCloud()
-        self._latest_added = False
-        self._map_added = False
-
-    def update(self, latest_cloud: Optional[o3d.geometry.PointCloud],
-               map_cloud: Optional[o3d.geometry.PointCloud]):
-        if latest_cloud is not None:
-            self.latest = latest_cloud
-            if not self._latest_added:
-                self.vis.add_geometry(self.latest)
-                self._latest_added = True
-            else:
-                self.vis.update_geometry(self.latest)
-        if map_cloud is not None:
-            self.map = map_cloud
-            if not self._map_added:
-                self.vis.add_geometry(self.map)
-                self._map_added = True
-            else:
-                self.vis.update_geometry(self.map)
-        self.vis.poll_events()
-        self.vis.update_renderer()
-
-    def close(self):
-        self.vis.destroy_window()
 
 
 # =============================================================================
@@ -865,6 +1052,9 @@ class LioNode(Node):
         self.imu_use_accel     = bool(p("imu_use_accel", True))
         self.imu_timeout_sec    = float(p("imu_timeout_sec", 0.5))
         self.imu_gravity_z_down = bool(p("imu_gravity_z_down", False))
+        # Scale factor for raw accelerometer readings → m/s².
+        # Set to 9.81 when the IMU publishes in g-units (e.g. Livox Horizon bags).
+        self.imu_accel_scale   = float(p("imu_accel_scale", 1.0))
         gyro_bias_raw  = p("imu_gyro_bias",  [0.0, 0.0, 0.0])
         accel_bias_raw = p("imu_accel_bias", [0.0, 0.0, 0.0])
 
@@ -873,6 +1063,7 @@ class LioNode(Node):
         self.ieskf_sigma_accel    = float(p("ieskf_sigma_accel",    0.05))
         self.ieskf_sigma_bg       = float(p("ieskf_sigma_bg",       1e-4))
         self.ieskf_sigma_ba       = float(p("ieskf_sigma_ba",       1e-3))
+        self.ieskf_init_p_cov     = float(p("ieskf_init_p_cov",     1.0))
         self.ieskf_init_bg_cov    = float(p("ieskf_init_bg_cov",    1e-4))
         self.ieskf_init_ba_cov    = float(p("ieskf_init_ba_cov",    1e-4))
         self.ieskf_max_iters      = int(p("ieskf_max_iters",        3))
@@ -902,11 +1093,49 @@ class LioNode(Node):
         self.accumulate_max_points = int(p("accumulate_max_points", 1_500_000))
 
         # ---- Z handling
-        self.force_z_zero = bool(p("force_z_zero", False))
+        self.force_z_zero  = bool(p("force_z_zero", False))
+        # Soft floor constraint: replaces hard zeroing when > 0.
+        # sigma_z [m] — how tightly to constrain p_z to 0.
+        # 0.05 m is a good indoor default; set 0 to keep legacy hard-zero.
+        self.soft_z_sigma  = float(p("soft_z_sigma", 0.05))
 
-        # ---- Visualization / map
-        self.visualize  = bool(p("visualize", True))
+        # ---- ZUPT (zero-velocity update)
+        # Applied every IMU tick when the robot appears stationary.
+        self.zupt_omega_thresh = float(p("zupt_omega_thresh", 0.05))  # rad/s
+        self.zupt_accel_thresh = float(p("zupt_accel_thresh", 0.30))  # m/s²
+        self.zupt_sigma_v      = float(p("zupt_sigma_v",      0.01))  # m/s
+
+        # ---- Motion-adaptive GICP noise
+        # Thresholds for classifying motion state from the inter-scan IMU window.
+        self.motion_omega_stationary      = float(p("motion_omega_stationary",      0.05))  # rad/s
+        self.motion_omega_rotating        = float(p("motion_omega_rotating",        0.30))  # rad/s
+        self.motion_accel_stationary      = float(p("motion_accel_stationary",      0.30))  # m/s²
+        self.motion_accel_translating     = float(p("motion_accel_translating",     0.80))  # m/s²
+        # When stationary: skip GICP entirely (ZUPT holds position).
+        self.motion_skip_stationary       = bool( p("motion_skip_stationary",       True))
+        # When rotating fast: inflate GICP rotation noise so gyro propagation holds rotation.
+        self.motion_rot_noise_scale       = float(p("motion_rot_noise_scale",       4.0))
+        # When translating: deflate GICP position noise so GICP drives translation.
+        self.motion_trans_pos_noise_scale = float(p("motion_trans_pos_noise_scale", 0.5))
+
+        # ---- Map
         self.map_voxel  = float(p("map_voxel", 0.15))
+
+        # ---- Debug CSV (per-scan diagnostics; empty string = disabled)
+        _debug_csv = str(p("debug_csv", ""))
+        self._debug_fh = None
+        if _debug_csv:
+            import os as _os
+            _os.makedirs(_os.path.dirname(_debug_csv) or ".", exist_ok=True)
+            self._debug_fh = open(_debug_csv, "w", buffering=1)
+            self._debug_fh.write(
+                "scan_num,stamp,x,y,z,yaw,"
+                "imu_x,imu_y,imu_z,imu_yaw,"
+                "gicp_dx,gicp_dy,gicp_dz,gicp_dyaw,"
+                "gicp_conf,chi2,accepted,"
+                "motion,n_map_vox,n_scan_pts,use_submap\n"
+            )
+            self.get_logger().info(f"[debug] Writing per-scan CSV → {_debug_csv}")
 
         # ---- GICP
         self.use_pctools_gicp       = bool(p("use_pctools_gicp", True))
@@ -932,6 +1161,7 @@ class LioNode(Node):
             sigma_accel     = self.ieskf_sigma_accel,
             sigma_bg        = self.ieskf_sigma_bg,
             sigma_ba        = self.ieskf_sigma_ba,
+            init_p_cov      = self.ieskf_init_p_cov,
             init_bg_cov     = self.ieskf_init_bg_cov,
             init_ba_cov     = self.ieskf_init_ba_cov,
             max_iters       = self.ieskf_max_iters,
@@ -946,9 +1176,46 @@ class LioNode(Node):
         self._last_omega: np.ndarray = np.zeros(3)
         self._last_accel: np.ndarray = np.zeros(3)
 
+        # 2nd-order Butterworth IIR — replaces 41-tap FIR.
+        # Group delay: ~1/(2*fc) samples ≈ 10 ms at 25 Hz / 200 Hz,
+        # vs 100 ms for the old 41-tap Hann FIR.
+        _imu_in_hz = 200.0
+        _cutoff_hz = float(p("imu_fir_cutoff_hz", 25.0))  # reuse same yaml key
+        self._iir_sos: np.ndarray = butter(
+            2, _cutoff_hz / (_imu_in_hz / 2.0), btype='low', output='sos'
+        ).astype(np.float64)
+        # Per-channel initial conditions — shape (n_sections, 2) each
+        _zi0 = sosfilt_zi(self._iir_sos)                    # (n_sections, 2)
+        self._iir_zi_omega: List[np.ndarray] = [_zi0.copy() for _ in range(3)]
+        self._iir_zi_accel: List[np.ndarray] = [_zi0.copy() for _ in range(3)]
+        self._iir_initialized = False
+        # Group delay is frequency-dependent; approximate constant for dt correction
+        self._fir_group_delay_sec = 1.0 / (2.0 * _cutoff_hz)  # ≈ 0.020 s
+        # Separate propagation timestamp tracked in effective (delay-compensated) time
+        self._last_prop_stamp: Optional[float] = None
+
+        # IMU ring buffer for deskewing and delayed-update repropagate
+        # Stores (t_eff, omega_filt, accel_filt) at full 200 Hz for ≈2.5 s
+        self._imu_buffer: collections.deque = collections.deque(maxlen=500)
+
+        # GICP → iESKF covariance parameters
+        self._gicp_cov_scale  = float(p("gicp_cov_scale", 100.0))
+        self._chi2_threshold  = float(p("gicp_chi2_threshold", 22.46))
+
+        # ---- Voxel hash map (replaces unbounded map_cloud accumulation)
+        # map_voxel already declared above — reuse self.map_voxel to avoid duplicate
+        self.voxel_map = VoxelHashMap(
+            voxel_size   = self.map_voxel,
+            prune_radius = float(p("voxel_map_prune_radius", 80.0)),
+            max_voxels   = int(p("voxel_map_max_voxels", 400_000)),
+        )
+        # Submap radius for scan-to-submap GICP (m). 0 → keep scan-to-scan.
+        self.gicp_submap_radius = float(p("gicp_submap_radius", 25.0))
+        # Min voxels in map before switching to submap GICP
+        self._submap_min_voxels = 200
+
         # ---- Scan state
         self.prev_cloud: Optional[o3d.geometry.PointCloud] = None
-        self.map_cloud = o3d.geometry.PointCloud()
         self._buffer_cloud = o3d.geometry.PointCloud()
         self.msg_counter   = 0
         self.scan_counter  = 0
@@ -957,12 +1224,11 @@ class LioNode(Node):
         # ---- GICP callable
         self.apply_gicp_func = self._resolve_gicp()
 
-        # ---- Visualizer
-        self.viewer = LiveOpen3D(window_name="LIO Map (iESKF)") if self.visualize else None
-
         # ---- Publishers / subscribers
-        self.odom_pub = self.create_publisher(Odometry, self.odom_topic, 10) if self.publish_odom else None
-        self.map_pub  = self.create_publisher(PointCloud2, self.map_topic, 1) if self.publish_map  else None
+        self.odom_pub     = self.create_publisher(Odometry, self.odom_topic, 10) if self.publish_odom else None
+        self.imu_odom_pub = (self.create_publisher(Odometry, self.odom_topic + "_imu_only", 10)
+                             if self.publish_odom and self.use_imu else None)
+        self.map_pub      = self.create_publisher(PointCloud2, self.map_topic, 1) if self.publish_map else None
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self) if self.publish_tf else None
 
         self.lidar_sub = self.create_subscription(
@@ -975,66 +1241,121 @@ class LioNode(Node):
         if self.use_imu:
             self.get_logger().info(
                 f"imu={self.imu_topic}  "
+                f"accel_scale={self.imu_accel_scale}  "
                 f"σ_gyro={self.ieskf_sigma_gyro}  σ_accel={self.ieskf_sigma_accel}  "
                 f"σ_bg={self.ieskf_sigma_bg}  σ_ba={self.ieskf_sigma_ba}"
             )
+            self.get_logger().info(
+                f"IIR filter: 2nd-order Butterworth LP, "
+                f"cutoff={_cutoff_hz:.0f} Hz, "
+                f"approx group_delay={self._fir_group_delay_sec*1000:.0f} ms "
+                f"(was 100 ms with 41-tap FIR), propagation at full 200 Hz"
+            )
 
     # -------------------------------------------------------------------------
-    # GICP resolver (unchanged)
+    # GICP resolver — returns func(prev, curr, T_init) -> (T_4x4, H_6x6|None)
     # -------------------------------------------------------------------------
     def _resolve_gicp(self):
         if self.use_pctools_gicp:
             if self.use_imu:
                 try:
-                    from Pctools import apply_gicp_with_init
-                    self.get_logger().info("Using Pctools.apply_gicp_with_init")
-                    return apply_gicp_with_init
+                    from Pctools import apply_gicp_with_init_full
+                    self.get_logger().info("Using Pctools.apply_gicp_with_init_full (H matrix)")
+                    return apply_gicp_with_init_full
                 except Exception as e:
-                    self.get_logger().warn(f"Pctools.apply_gicp_with_init unavailable: {e}")
-            # use_imu=False (or apply_gicp_with_init unavailable): use apply_gicp_direct
-            # like ros_non_rep.py — cold-start GICP, no init_T
+                    self.get_logger().warn(f"Pctools.apply_gicp_with_init_full unavailable: {e}")
+                try:
+                    from Pctools import apply_gicp_with_init
+                    self.get_logger().info("Using Pctools.apply_gicp_with_init (scalar conf fallback)")
+                    def _wrap_init(src, tgt, init_T=None):
+                        return apply_gicp_with_init(src, tgt, init_T), None
+                    return _wrap_init
+                except Exception as e2:
+                    self.get_logger().warn(f"Pctools.apply_gicp_with_init unavailable: {e2}")
             try:
                 from Pctools import apply_gicp_direct
-                def _wrap(src, tgt, init_T=None):
-                    return apply_gicp_direct(src, tgt)
+                def _wrap_direct(src, tgt, init_T=None):
+                    return apply_gicp_direct(src, tgt), None
                 self.get_logger().info("Using Pctools.apply_gicp_direct (no init_T)")
-                return _wrap
-            except Exception as e2:
-                self.get_logger().warn(f"Pctools import failed: {e2}. Using Open3D fallback.")
+                return _wrap_direct
+            except Exception as e3:
+                self.get_logger().warn(f"Pctools import failed: {e3}. Using Open3D fallback.")
 
         def _o3d_gicp(src, tgt, init_T=None):
-            return apply_gicp_open3d(src, tgt,
-                                     init_T=init_T if self.use_imu else None,
-                                     voxel_size=self.gicp_voxel_size,
-                                     max_corr_distance=self.gicp_max_corr_distance,
-                                     max_iterations=self.gicp_max_iterations)
+            T = apply_gicp_open3d(src, tgt,
+                                  init_T=init_T if self.use_imu else None,
+                                  voxel_size=self.gicp_voxel_size,
+                                  max_corr_distance=self.gicp_max_corr_distance,
+                                  max_iterations=self.gicp_max_iterations)
+            return T, None
         self.get_logger().info("Using Open3D GICP")
         return _o3d_gicp
 
     # -------------------------------------------------------------------------
-    # IMU callback — continuous iESKF propagation
+    # IIR Butterworth filter helper (runs at full 200 Hz, sample-by-sample)
+    # -------------------------------------------------------------------------
+    def _fir_filter_imu(self, omega: np.ndarray, accel: np.ndarray
+                        ) -> Tuple[np.ndarray, np.ndarray]:
+        """Pass one IMU sample through the 2nd-order Butterworth IIR filter.
+
+        Replaces the old 41-tap FIR. Group delay ≈ 10-20 ms vs 100 ms.
+        State zi is maintained across calls for phase continuity.
+        On the first call, zi is initialised to DC steady-state so the filter
+        output starts at the correct level without a transient.
+        """
+        if not self._iir_initialized:
+            # Warm up zi to DC steady-state of the first sample
+            for ch in range(3):
+                _, self._iir_zi_omega[ch] = sosfilt(
+                    self._iir_sos, [omega[ch]], zi=self._iir_zi_omega[ch] * omega[ch])
+                _, self._iir_zi_accel[ch] = sosfilt(
+                    self._iir_sos, [accel[ch]], zi=self._iir_zi_accel[ch] * accel[ch])
+            self._iir_initialized = True
+
+        y_omega = np.empty(3, dtype=np.float64)
+        y_accel = np.empty(3, dtype=np.float64)
+        for ch in range(3):
+            out_o, self._iir_zi_omega[ch] = sosfilt(
+                self._iir_sos, [omega[ch]], zi=self._iir_zi_omega[ch])
+            out_a, self._iir_zi_accel[ch] = sosfilt(
+                self._iir_sos, [accel[ch]], zi=self._iir_zi_accel[ch])
+            y_omega[ch] = out_o[0]
+            y_accel[ch] = out_a[0]
+        return y_omega, y_accel
+
+    # -------------------------------------------------------------------------
+    # IMU callback — FIR at 200 Hz, propagate at full 200 Hz (no decimation)
     # -------------------------------------------------------------------------
     def cb_imu(self, msg: Imu):
-        stamp_sec = ros_time_to_sec(msg.header.stamp)
+        stamp_hw = ros_time_to_sec(msg.header.stamp)    # hardware timestamp
         omega = np.array([msg.angular_velocity.x,
                           msg.angular_velocity.y,
                           msg.angular_velocity.z], dtype=float)
         accel = np.array([msg.linear_acceleration.x,
                           msg.linear_acceleration.y,
-                          msg.linear_acceleration.z], dtype=float)
+                          msg.linear_acceleration.z], dtype=float) * self.imu_accel_scale
 
-        if not self.imu_use_accel:
-            # Gyro-only mode: propagate rotation immediately without waiting
-            # for gravity initialisation (no accel integration, no drift).
-            if (self.last_scan_stamp_sec is not None
-                    and self.last_imu_stamp_sec is not None):
-                dt = stamp_sec - self.last_imu_stamp_sec
-                if 0.0 < dt < 1.0:
-                    self.ieskf.propagate(omega, accel, dt, use_accel=False)
-        elif not self.ieskf.gravity_initialized:
-            just_initialized = self.ieskf.collect_static_sample(omega, accel, self.ieskf.R)
+        # FIR runs at full 200 Hz — smoothing only, no decimation
+        omega, accel = self._fir_filter_imu(omega, accel)
+
+        # Effective timestamp: shift back by FIR group delay so that
+        # propagation dt is computed at the time the signal was actually measured.
+        # last_imu_stamp_sec keeps the hardware time for bridge/freshness checks.
+        stamp_eff = stamp_hw - self._fir_group_delay_sec
+
+        self.last_imu_stamp_sec = stamp_hw
+        self._last_omega = omega
+        self._last_accel = accel
+
+        # Buffer for deskewing and delayed-update repropagate
+        self._imu_buffer.append((stamp_eff, omega.copy(), accel.copy()))
+
+        # Gravity / bias static init (every sample)
+        if self.imu_use_accel and not self.ieskf.gravity_initialized:
+            just_initialized = self.ieskf.collect_static_sample(
+                omega, accel, self.ieskf.R)
             if just_initialized:
-                g = self.ieskf.g_world
+                g  = self.ieskf.g_world
                 bg = self.ieskf.bg
                 self.get_logger().info(
                     f"Static init complete — "
@@ -1048,15 +1369,36 @@ class LioNode(Node):
                         "sensor may be z-down mounted. "
                         "Set imu_gravity_z_down: true in lio.yaml to suppress this warning."
                     )
-        elif self.last_scan_stamp_sec is not None:
-            if self.last_imu_stamp_sec is not None:
-                dt = stamp_sec - self.last_imu_stamp_sec
-                if 0.0 < dt < 1.0:
-                    self.ieskf.propagate(omega, accel, dt, use_accel=True)
 
-        self.last_imu_stamp_sec = stamp_sec
-        self._last_omega = omega
-        self._last_accel = accel
+        # Propagate at full 200 Hz using effective (delay-compensated) timestamps.
+        # Does not wait for gravity_initialized — default g_world=[0,0,9.81] is
+        # valid for z-up sensors and keeps P growing to prevent gain collapse.
+        if (self.last_scan_stamp_sec is not None
+                and self._last_prop_stamp is not None):
+            dt = stamp_eff - self._last_prop_stamp
+            if 0.0 < dt < 0.05:   # sanity: normal IMU interval ≤ 50 ms
+                self.ieskf.propagate(omega, accel, dt,
+                                     use_accel=self.imu_use_accel)
+
+            # --- ZUPT: inject v=0 when robot is stationary -------------------
+            # Checked every IMU tick so drift is bounded during GICP-failure
+            # windows.  Uses bias-corrected values to avoid false triggers.
+            if self.imu_use_accel:
+                omega_c = omega - self.ieskf.bg
+                accel_c = accel - self.ieskf.ba
+                a_world_residual = float(np.linalg.norm(
+                    self.ieskf.R @ accel_c - self.ieskf.g_world))
+                if (float(np.linalg.norm(omega_c)) < self.zupt_omega_thresh
+                        and a_world_residual < self.zupt_accel_thresh):
+                    self.ieskf.zupt_update(self.zupt_sigma_v)
+
+            # --- Soft z-constraint: floor pseudo-measurement -----------------
+            # Applied every IMU tick so z-accel bias remains observable even
+            # when GICP is rejecting updates.  Replaces hard zeroing.
+            if self.force_z_zero and self.soft_z_sigma > 0.0:
+                self.ieskf.soft_z_update(self.soft_z_sigma)
+
+        self._last_prop_stamp = stamp_eff
 
     # -------------------------------------------------------------------------
     # IMU freshness check (unchanged logic)
@@ -1074,7 +1416,185 @@ class LioNode(Node):
             return 0.0
         if not self.imu_use_accel:
             return 0.6  # gyro-only: good rotation hint, no position prediction
-        return 0.9 if self.ieskf.is_accel_ready else 0.6
+        # Full IMU: 0.9 once gravity is refined, 0.6 while still on default g_world
+        return 0.9 if self.ieskf.gravity_initialized else 0.6
+
+    def _classify_motion_at_scan(self) -> Tuple[str, float, float]:
+        """Classify motion state at scan time from inter-scan IMU buffer.
+
+        Returns (state, omega_rms_rad_s, accel_rms_m_s2) where state is one of:
+          'stationary' — skip GICP; ZUPT holds position
+          'rotating'   — inflate GICP rotation noise; gyro propagation holds rotation
+          'translating'— deflate GICP position noise; GICP drives translation
+          'combined'   — both; partial adjustments
+          'mild'       — low motion below thresholds; use normal noise
+          'unknown'    — IMU unavailable; use normal noise
+        """
+        if not self.use_imu or not self.imu_use_accel or len(self._imu_buffer) == 0:
+            return 'unknown', 0.0, 0.0
+
+        t_since = self.last_scan_stamp_sec if self.last_scan_stamp_sec is not None else -1.0
+        samples = [(om, ac) for (t, om, ac) in self._imu_buffer if t > t_since]
+        if not samples:
+            _, om, ac = self._imu_buffer[-1]
+            samples = [(om, ac)]
+
+        bg = self.ieskf.bg
+        ba = self.ieskf.ba
+        R  = self.ieskf.R
+        g  = self.ieskf.g_world
+
+        omega_sq  = [float(np.dot(om - bg, om - bg)) for om, _ in samples]
+        omega_rms = float(np.sqrt(np.mean(omega_sq)))
+
+        accel_res = [float(np.linalg.norm(R @ (ac - ba) - g)) for _, ac in samples]
+        accel_rms = float(np.mean(accel_res))
+
+        if (omega_rms < self.motion_omega_stationary
+                and accel_rms < self.motion_accel_stationary):
+            return 'stationary', omega_rms, accel_rms
+
+        is_rot   = omega_rms > self.motion_omega_rotating
+        is_trans = accel_rms > self.motion_accel_translating
+
+        if is_rot and is_trans:
+            return 'combined', omega_rms, accel_rms
+        if is_rot:
+            return 'rotating', omega_rms, accel_rms
+        if is_trans:
+            return 'translating', omega_rms, accel_rms
+        return 'mild', omega_rms, accel_rms
+
+    # -------------------------------------------------------------------------
+    # LiDAR scan deskewing (rotation-only using IMU buffer)
+    # -------------------------------------------------------------------------
+    def _deskew_cloud(self, xyz: np.ndarray,
+                      stamps_sec: Optional[np.ndarray],
+                      t_scan_sec: float) -> np.ndarray:
+        """Rotate each point from its capture time into the scan reference frame
+        (t_scan_sec) using gyro integration from the IMU buffer.
+
+        Returns xyz unchanged if no per-point timestamps or IMU buffer is empty.
+        """
+        if stamps_sec is None or xyz.shape[0] == 0 or len(self._imu_buffer) == 0:
+            return xyz
+
+        t_min = float(stamps_sec.min())
+        if t_scan_sec - t_min < 1e-4:
+            return xyz   # all points at same time — nothing to do
+
+        # Collect relevant IMU samples covering the scan window
+        buf = [(t, w, a) for (t, w, a) in self._imu_buffer if t >= t_min - 0.005]
+        if len(buf) < 2:
+            return xyz
+
+        if buf[-1][0] < t_scan_sec:
+            buf.append((t_scan_sec, self._last_omega.copy(), self._last_accel.copy()))
+
+        # Forward-integrate rotations from t_min to each IMU step (gyro only)
+        # R_accum[i] = R from t_min to buf[i][0]
+        R_cur = np.eye(3)
+        timeline: List[Tuple[float, np.ndarray]] = [(buf[0][0], R_cur.copy())]
+        for i in range(1, len(buf)):
+            dt = buf[i][0] - buf[i - 1][0]
+            if not (0.0 < dt < 0.05):
+                timeline.append((buf[i][0], R_cur.copy()))
+                continue
+            omega_c = buf[i - 1][1] - self.ieskf.bg
+            R_cur = R_cur @ so3_exp(omega_c * dt)
+            timeline.append((buf[i][0], R_cur.copy()))
+
+        # R at the scan reference time
+        R_scan = timeline[-1][1]   # R_{t_min → t_scan}
+
+        # For each point: R_{t_i → t_scan} = R_scan.T @ R_{t_min → t_i}
+        xyz_out = xyz.copy()
+        for i in range(len(timeline) - 1):
+            t_lo, R_lo = timeline[i]
+            t_hi, _    = timeline[i + 1]
+            mask = (stamps_sec >= t_lo) & (stamps_sec < t_hi)
+            if not mask.any():
+                continue
+            R_i_to_scan = R_scan.T @ R_lo
+            xyz_out[mask] = (R_i_to_scan @ xyz[mask].T).T
+
+        return xyz_out
+
+    # -------------------------------------------------------------------------
+    # Build 6×6 measurement noise covariance from small_gicp H matrix
+    # -------------------------------------------------------------------------
+    def _build_gicp_noise_cov(self,
+                               H_gicp: Optional[np.ndarray],
+                               reg_conf: float,
+                               pos_scale: float = 1.0,
+                               rot_scale: float = 1.0) -> np.ndarray:
+        """Convert small_gicp Hessian H (order [rot(3), trans(3)]) to
+        measurement noise cov R_n in [pos(3), rot(3)] order for iESKF.
+
+        pos_scale / rot_scale: motion-adaptive multipliers applied via
+        diagonal similarity transform S·R_n·S so positive-definiteness is
+        preserved regardless of which path (Hessian or scalar) built R_n.
+
+        Falls back to scalar diagonal when H is unavailable or ill-conditioned.
+        """
+        if H_gicp is not None and H_gicp.shape == (6, 6):
+            # small_gicp tangent order: [rot(3), trans(3)]
+            # Reorder to our [pos(3)=trans, rot(3)] convention
+            idx = [3, 4, 5, 0, 1, 2]
+            H_reordered = H_gicp[np.ix_(idx, idx)]
+            try:
+                cov = np.linalg.inv(H_reordered) * self._gicp_cov_scale
+                # Ensure positive definiteness
+                eigvals = np.linalg.eigvalsh(cov)
+                if eigvals.min() > 0.0:
+                    R_n = cov
+                    # Fall through to apply motion scales below
+                else:
+                    R_n = None
+            except np.linalg.LinAlgError:
+                R_n = None
+        else:
+            R_n = None
+
+        if R_n is None:
+            # Scalar fallback: inflate by inverse confidence
+            noise_scale = max(1.0, 1.0 / max(reg_conf, 0.05))
+            R_n = np.zeros((6, 6))
+            R_n[0:3, 0:3] = np.eye(3) * (self.ieskf_meas_noise_pos * noise_scale) ** 2
+            R_n[3:6, 3:6] = np.eye(3) * (self.ieskf_meas_noise_rot * noise_scale) ** 2
+
+        # Apply motion-adaptive diagonal scaling: R_n_scaled = S @ R_n @ S
+        # where S = diag(pos_scale×I_3, rot_scale×I_3).
+        if pos_scale != 1.0 or rot_scale != 1.0:
+            s = np.concatenate([np.full(3, pos_scale), np.full(3, rot_scale)])
+            R_n = (s[:, None] * R_n) * s[None, :]
+
+        return R_n
+
+    # -------------------------------------------------------------------------
+    # IMU-only odometry publisher
+    # -------------------------------------------------------------------------
+    def _publish_imu_only_odom(self, stamp, p: np.ndarray, R: np.ndarray,
+                                v: np.ndarray) -> None:
+        if self.imu_odom_pub is None:
+            return
+        qx, qy, qz, qw = rot_to_quat(R)
+        odom = Odometry()
+        odom.header.stamp    = stamp
+        odom.header.frame_id = self.map_frame
+        odom.child_frame_id  = self.base_frame + "_imu"
+        odom.pose.pose.position.x    = float(p[0])
+        odom.pose.pose.position.y    = float(p[1])
+        odom.pose.pose.position.z    = float(p[2])
+        odom.pose.pose.orientation.x = qx
+        odom.pose.pose.orientation.y = qy
+        odom.pose.pose.orientation.z = qz
+        odom.pose.pose.orientation.w = qw
+        v_body = R.T @ v
+        odom.twist.twist.linear.x = float(v_body[0])
+        odom.twist.twist.linear.y = float(v_body[1])
+        odom.twist.twist.linear.z = float(v_body[2])
+        self.imu_odom_pub.publish(odom)
 
     def _build_nonrep_init_guess(self, pred_pose: np.ndarray) -> np.ndarray:
         """Convert non-rep absolute predicted pose [x,y,z,yaw] → relative T_B1_B2."""
@@ -1203,18 +1723,11 @@ class LioNode(Node):
             return
         if self.scan_counter % self.map_publish_every_n_scans != 0:
             return
-        cloud_to_pub = self.map_cloud
-        if len(cloud_to_pub.points) > 0 and self.map_publish_voxel > 0:
-            cloud_to_pub = cloud_to_pub.voxel_down_sample(float(self.map_publish_voxel))
-        if self.map_publish_max_points > 0 and len(cloud_to_pub.points) > self.map_publish_max_points:
-            pts  = np.asarray(cloud_to_pub.points)
-            cols = np.asarray(cloud_to_pub.colors) if cloud_to_pub.has_colors() else None
-            idx  = np.random.choice(len(pts), self.map_publish_max_points, replace=False)
-            tmp  = o3d.geometry.PointCloud()
-            tmp.points = o3d.utility.Vector3dVector(pts[idx].astype(np.float64, copy=False))
-            if cols is not None and len(cols) == len(pts):
-                tmp.colors = o3d.utility.Vector3dVector(cols[idx].astype(np.float64, copy=False))
-            cloud_to_pub = tmp
+        # VoxelHashMap already stores one point per voxel (= implicit DS at map_voxel
+        # resolution). to_open3d() caps at map_publish_max_points via random sampling.
+        cloud_to_pub = self.voxel_map.to_open3d(
+            max_points=self.map_publish_max_points if self.map_publish_max_points > 0
+            else 800_000)
         header = Header()
         header.stamp    = stamp
         header.frame_id = self.map_frame
@@ -1225,7 +1738,16 @@ class LioNode(Node):
     # -------------------------------------------------------------------------
     def cb_cloud(self, msg: PointCloud2):
         self.msg_counter += 1
-        xyz, intensity = pointcloud2_to_xyz_i(msg)
+
+        # Extract points with per-point timestamps (if available for deskewing)
+        xyz, intensity, pt_stamps = pointcloud2_to_xyz_i_stamps(msg)
+
+        # Deskew using IMU before buffering/accumulation
+        stamp             = msg.header.stamp
+        current_stamp_sec = ros_time_to_sec(stamp)
+        if self.use_imu and len(self._imu_buffer) > 0:
+            xyz = self._deskew_cloud(xyz, pt_stamps, current_stamp_sec)
+
         cloud_raw = xyzi_to_open3d_cloud(xyz, intensity)
         cloud = self._flush_or_buffer(cloud_raw)
         if cloud is None or len(cloud.points) == 0:
@@ -1233,22 +1755,33 @@ class LioNode(Node):
         if self.max_scans is not None and self.scan_counter >= self.max_scans:
             return
 
-        stamp             = msg.header.stamp
-        current_stamp_sec = ros_time_to_sec(stamp)
-
-        # Bridge the gap between the last IMU message and the exact scan
-        # timestamp.  cb_imu propagates up to last_imu_stamp_sec; any
-        # remaining dt is covered here using the most recent IMU sample
-        # (zero-order hold), so the IESKF state aligns to scan time.
+        # Bridge the gap between the last filtered-IMU effective time and scan time.
+        # cb_imu propagates to _last_prop_stamp (effective); the bridge covers the
+        # remaining interval to current_stamp_sec using a zero-order hold.
         imu_ready = (self.use_imu
                      and self.last_scan_stamp_sec is not None
-                     and self.last_imu_stamp_sec is not None
-                     and (not self.imu_use_accel or self.ieskf.gravity_initialized))
+                     and self._last_prop_stamp is not None)
         if imu_ready:
-            dt_gap = current_stamp_sec - self.last_imu_stamp_sec
-            if 0.0 < dt_gap < 0.1:
+            dt_gap = current_stamp_sec - self._last_prop_stamp
+            if 0.0 < dt_gap < 0.15:   # allow up to ~FIR_delay + one IMU period
                 self.ieskf.propagate(self._last_omega, self._last_accel, dt_gap,
                                      use_accel=self.imu_use_accel)
+
+        # Save full state snapshot at scan time — used to roll back if repropagate needed
+        state_snap_at_scan = self.ieskf.save_full_snapshot()
+        last_prop_at_scan  = self._last_prop_stamp
+
+        # Classify motion state from inter-scan IMU window (requires accel to be on)
+        motion_state, _omega_rms, _accel_rms = self._classify_motion_at_scan()
+
+        # Debug sentinels — overwritten below as each step completes
+        _dbg_imu_p   = self.ieskf.p.copy()
+        _dbg_imu_R   = self.ieskf.R.copy()
+        _dbg_T       = None
+        _dbg_conf    = float('nan')
+        _dbg_chi2    = float('nan')
+        _dbg_acc     = -1        # -1 = GICP did not run
+        _dbg_sub     = False
 
         try:
             feat = self.processor.extract_scan_features(cloud)
@@ -1263,60 +1796,158 @@ class LioNode(Node):
                 T_imu = self.ieskf.get_predicted_relative_transform()
                 w_imu = self._imu_confidence(current_stamp_sec) * self.imu_base_weight
 
-            T_nonrep  = np.eye(4, dtype=float)
-            w_nonrep  = 0.0
-            # Only blend non-rep init guess when IMU is active; with use_imu=False
-            # GICP starts from identity, matching ros_non_rep.py behaviour.
+            T_nonrep = np.eye(4, dtype=float)
+            w_nonrep = 0.0
             if self.use_imu and pred_pose is not None and self.processor.get_current_state() is not None:
                 T_nonrep = self._build_nonrep_init_guess(pred_pose)
                 w_nonrep = float(pred_conf) * self.nonrep_base_weight
 
             T_init = self._merge_init_guesses(T_imu, w_imu, T_nonrep, w_nonrep)
 
+            # ------ Capture IMU-only state BEFORE GICP corrects it --------
+            # This is the pure propagated (dead-reckoning) pose at scan time.
+            imu_only_p = self.ieskf.p.copy()
+            imu_only_R = self.ieskf.R.copy()
+            imu_only_v = self.ieskf.v.copy()
+            _dbg_imu_p = imu_only_p
+            _dbg_imu_R = imu_only_R
+
             # ------ GICP registration -------------------------------------
             if self.prev_cloud is not None and len(self.prev_cloud.points) > 0:
-                T        = self.apply_gicp_func(self.prev_cloud, cloud, T_init)
-                reg_conf = estimate_registration_confidence(self.prev_cloud, cloud, T)
 
-                # Scale measurement noise by inverse of GICP confidence;
-                # low confidence → larger noise → filter trusts IMU more.
-                noise_scale       = max(1.0, 1.0 / max(reg_conf, 0.05))
-                meas_noise_pos    = self.ieskf_meas_noise_pos * noise_scale
-                meas_noise_rot    = self.ieskf_meas_noise_rot * noise_scale
+                # Stationary: robot not moving — skip GICP entirely.
+                # IMU/ZUPT already hold position; no wasted registration compute.
+                if (self.use_imu and self.motion_skip_stationary
+                        and motion_state == 'stationary'):
+                    yaw      = float(np.arctan2(self.ieskf.R[1, 0], self.ieskf.R[0, 0]))
+                    obs_pose = np.array([self.ieskf.p[0], self.ieskf.p[1],
+                                         self.ieskf.p[2], yaw])
+                    self.processor.update_with_observation(
+                        obs_pose, feat, 0.0, pred_pose)
 
-                if reg_conf < self.gicp_min_conf and w_imu > 0.0:
-                    self.get_logger().warn(
-                        f"Scan {self.scan_counter}: low GICP conf "
-                        f"({reg_conf:.2f}) — boosting measurement noise ×20"
-                    )
-                    meas_noise_pos *= 20.0
-                    meas_noise_rot *= 20.0
-
-                if self.use_imu:
-                    # iESKF measurement update — replaces direct state assignment
-                    self.ieskf.update(T, meas_noise_pos, meas_noise_rot)
                 else:
-                    # Fallback when IMU disabled: direct state update (original)
-                    dR       = T[:3, :3]
-                    dp_body  = T[:3, 3]
-                    dt_scan  = max(1e-6,
-                                   current_stamp_sec - self.last_scan_stamp_sec
-                                   if self.last_scan_stamp_sec else 1.0)
-                    p_prev   = self.ieskf.p.copy()
-                    self.ieskf.p = self.ieskf.p + self.ieskf.R @ dp_body
-                    self.ieskf.R = self.ieskf.R @ dR
-                    U, _, Vt = np.linalg.svd(self.ieskf.R)
-                    self.ieskf.R = U @ Vt
-                    self.ieskf.v = (self.ieskf.p - p_prev) / dt_scan
+                    # Motion-adaptive noise scales:
+                    #   rotating    → inflate GICP rot noise; gyro propagation holds rotation
+                    #   translating → deflate GICP pos noise; GICP owns translation
+                    #   combined    → partial rotation inflation
+                    _pos_scale, _rot_scale = 1.0, 1.0
+                    if motion_state == 'rotating':
+                        _rot_scale = self.motion_rot_noise_scale
+                    elif motion_state == 'translating':
+                        _pos_scale = self.motion_trans_pos_noise_scale
+                    elif motion_state == 'combined':
+                        _rot_scale = max(1.0, self.motion_rot_noise_scale * 0.5)
 
-                if self.force_z_zero:
-                    self.ieskf.p[2] = 0.0
+                    # --- Choose GICP reference: local submap or previous scan ---
+                    # Scan-to-submap GICP: extract bounded local cloud from the
+                    # voxel hash map instead of matching against the full history.
+                    # Falls back to scan-to-scan when the map is still being built.
+                    # Submap GICP requires a valid init_T to bridge sensor→world frames.
+                    # Without IMU there is no init_T, so scan-to-scan is used instead.
+                    use_submap = (self.use_imu
+                                  and self.gicp_submap_radius > 0
+                                  and len(self.voxel_map) >= self._submap_min_voxels)
+                    if use_submap:
+                        gicp_ref = self.voxel_map.get_submap(
+                            self.ieskf.p, self.gicp_submap_radius)
+                        if len(gicp_ref.points) < 30:
+                            gicp_ref = self.prev_cloud
+                            use_submap = False
+                    else:
+                        gicp_ref = self.prev_cloud
 
-                # Feed non-rep processor (unchanged)
-                yaw      = float(np.arctan2(self.ieskf.R[1, 0], self.ieskf.R[0, 0]))
-                obs_pose = np.array([self.ieskf.p[0], self.ieskf.p[1],
-                                     self.ieskf.p[2], yaw])
-                self.processor.update_with_observation(obs_pose, feat, reg_conf, pred_pose)
+                    # For scan-to-submap the init guess must be in world frame;
+                    # for scan-to-scan it stays as the relative T_B1_B2.
+                    if use_submap:
+                        T_world_prev = np.eye(4, dtype=float)
+                        T_world_prev[:3, :3] = self.ieskf._R_last
+                        T_world_prev[:3, 3]  = self.ieskf._p_last
+                        T_init_gicp = T_world_prev @ T_init   # relative → absolute
+                    else:
+                        T_init_gicp = T_init
+
+                    T_raw, H_gicp = self.apply_gicp_func(gicp_ref, cloud, T_init_gicp)
+
+                    # Convert GICP result back to relative T_B1_B2 for iESKF.update
+                    if use_submap:
+                        T = np.linalg.inv(T_world_prev) @ T_raw
+                    else:
+                        T = T_raw
+                    _dbg_T   = T
+                    _dbg_sub = use_submap
+
+                    # Repropagate: if new IMU arrived during GICP, roll back to scan
+                    # time, apply update, then replay the buffered samples.
+                    # (In single-threaded mode this is a no-op; matters for live use.)
+                    new_imu_since_scan = [
+                        s for s in self._imu_buffer
+                        if s[0] > (last_prop_at_scan or -1.0)
+                    ]
+                    if self.use_imu and len(new_imu_since_scan) > 0:
+                        self.ieskf.restore_full_snapshot(state_snap_at_scan)
+                        self._last_prop_stamp = last_prop_at_scan
+
+                    reg_conf = estimate_registration_confidence(self.prev_cloud, cloud, T)
+                    _dbg_conf = reg_conf
+
+                    # Build 6×6 measurement noise with motion-adaptive pos/rot scales
+                    R_n = self._build_gicp_noise_cov(
+                        H_gicp, reg_conf, _pos_scale, _rot_scale)
+
+                    if self.use_imu:
+                        accepted, chi2 = self.ieskf.update(T, R_n, self._chi2_threshold)
+                        _dbg_chi2 = chi2
+                        _dbg_acc  = int(accepted)
+
+                        if not accepted:
+                            self.get_logger().warn(
+                                f"Scan {self.scan_counter}: GICP update REJECTED "
+                                f"(χ²={chi2:.1f} > {self._chi2_threshold:.1f}) — "
+                                f"conf={reg_conf:.2f}, IMU holds"
+                            )
+                        elif reg_conf < self.gicp_min_conf:
+                            self.get_logger().warn(
+                                f"Scan {self.scan_counter}: low GICP conf "
+                                f"({reg_conf:.2f}), χ²={chi2:.1f}"
+                            )
+
+                        # Repropagate any buffered IMU samples that arrived during GICP
+                        if len(new_imu_since_scan) > 0:
+                            for (t_s, om, ac) in new_imu_since_scan:
+                                if self._last_prop_stamp is not None:
+                                    dt_r = t_s - self._last_prop_stamp
+                                    if 0.0 < dt_r < 0.05:
+                                        self.ieskf.propagate(om, ac, dt_r,
+                                                             use_accel=self.imu_use_accel)
+                                self._last_prop_stamp = t_s
+                    else:
+                        # IMU disabled — direct state integration from GICP
+                        dR      = T[:3, :3]
+                        dp_body = T[:3, 3]
+                        dt_scan = max(1e-6, current_stamp_sec - self.last_scan_stamp_sec
+                                      if self.last_scan_stamp_sec else 1.0)
+                        p_prev  = self.ieskf.p.copy()
+                        self.ieskf.p = self.ieskf.p + self.ieskf.R @ dp_body
+                        self.ieskf.R = self.ieskf.R @ dR
+                        U, _, Vt = np.linalg.svd(self.ieskf.R)
+                        self.ieskf.R = U @ Vt
+                        self.ieskf.v = (self.ieskf.p - p_prev) / dt_scan
+
+                    if self.force_z_zero:
+                        if self.soft_z_sigma > 0.0:
+                            # Soft constraint: correct p_z toward 0, let ba_z adjust
+                            self.ieskf.soft_z_update(self.soft_z_sigma)
+                        else:
+                            # Legacy hard zero (used when soft_z_sigma: 0 in config)
+                            self.ieskf.p[2] = 0.0
+                            self.ieskf.v[2] = 0.0
+
+                    # Feed non-rep processor
+                    yaw      = float(np.arctan2(self.ieskf.R[1, 0], self.ieskf.R[0, 0]))
+                    obs_pose = np.array([self.ieskf.p[0], self.ieskf.p[1],
+                                         self.ieskf.p[2], yaw])
+                    self.processor.update_with_observation(
+                        obs_pose, feat, reg_conf, pred_pose)
 
             else:
                 # First scan — initialise at origin
@@ -1326,10 +1957,13 @@ class LioNode(Node):
             # Snapshot state for next interval's relative-transform query
             self.ieskf.save_scan_state()
 
-            # ------ Publish odometry --------------------------------------
+            # ------ Publish IMU-only odometry (dead-reckoning, no LiDAR) --
+            self._publish_imu_only_odom(stamp, imu_only_p, imu_only_R, imu_only_v)
+
+            # ------ Publish fused odometry --------------------------------
             self._publish_odom_and_tf(stamp, self.ieskf.p, self.ieskf.R, self.ieskf.v)
 
-            # ------ Map accumulation --------------------------------------
+            # ------ Voxel hash map insert (O(N) bounded, no periodic DS) --
             Tmap = np.eye(4, dtype=float)
             if self.use_imu:
                 Tmap[:3, :3] = self.ieskf.R
@@ -1337,16 +1971,23 @@ class LioNode(Node):
                 yaw_map = float(np.arctan2(self.ieskf.R[1, 0], self.ieskf.R[0, 0]))
                 Tmap[0, 0] =  np.cos(yaw_map); Tmap[0, 1] = -np.sin(yaw_map)
                 Tmap[1, 0] =  np.sin(yaw_map); Tmap[1, 1] =  np.cos(yaw_map)
-            Tmap[:3, 3]  = self.ieskf.p
-            cur_in_map   = o3d.geometry.PointCloud(cloud)
-            cur_in_map.transform(Tmap)
-            self.map_cloud += cur_in_map
-            if self.map_voxel > 0 and len(self.map_cloud.points) > 2_000_000:
-                self.map_cloud = self.map_cloud.voxel_down_sample(float(self.map_voxel))
-            self._publish_map_cloud(stamp)
+            Tmap[:3, 3] = self.ieskf.p
+            cur_pts = np.asarray(cloud.points, dtype=np.float64)
+            if len(cur_pts) > 0:
+                cur_pts_map = (Tmap[:3, :3] @ cur_pts.T + Tmap[:3, 3:4]).T
+                cur_cols = (np.asarray(cloud.colors, dtype=np.float64)
+                            if cloud.has_colors() else None)
+                self.voxel_map.insert(cur_pts_map.astype(np.float32), cur_cols)
 
-            if self.viewer is not None:
-                self.viewer.update(latest_cloud=cloud, map_cloud=self.map_cloud)
+            # Range-based pruning every 20 scans — removes voxels that drifted
+            # beyond prune_radius from the current position (no batch DS needed).
+            if self.scan_counter % 20 == 0 and len(self.voxel_map) > 0:
+                n_pruned = self.voxel_map.prune_far(self.ieskf.p)
+                if n_pruned > 0:
+                    self.get_logger().debug(
+                        f"Pruned {n_pruned} voxels — map: {len(self.voxel_map)}")
+
+            self._publish_map_cloud(stamp)
 
         except Exception as e:
             import traceback
@@ -1355,6 +1996,27 @@ class LioNode(Node):
 
         self.prev_cloud        = cloud
         self.last_scan_stamp_sec = current_stamp_sec
+
+        # ---- Write debug CSV row (one line per scan) ----
+        if self._debug_fh is not None:
+            _yf   = float(np.arctan2(self.ieskf.R[1, 0], self.ieskf.R[0, 0]))
+            _yimu = float(np.arctan2(_dbg_imu_R[1, 0], _dbg_imu_R[0, 0]))
+            if _dbg_T is not None:
+                _tdx  = float(_dbg_T[0, 3])
+                _tdy  = float(_dbg_T[1, 3])
+                _tdz  = float(_dbg_T[2, 3])
+                _tdyw = float(np.arctan2(_dbg_T[1, 0], _dbg_T[0, 0]))
+            else:
+                _tdx = _tdy = _tdz = _tdyw = float('nan')
+            self._debug_fh.write(
+                f"{self.scan_counter},{current_stamp_sec:.6f},"
+                f"{self.ieskf.p[0]:.6f},{self.ieskf.p[1]:.6f},{self.ieskf.p[2]:.6f},{_yf:.6f},"
+                f"{_dbg_imu_p[0]:.6f},{_dbg_imu_p[1]:.6f},{_dbg_imu_p[2]:.6f},{_yimu:.6f},"
+                f"{_tdx},{_tdy},{_tdz},{_tdyw},"
+                f"{_dbg_conf},{_dbg_chi2},{_dbg_acc},"
+                f"{motion_state},{len(self.voxel_map)},{len(cloud.points)},{int(_dbg_sub)}\n"
+            )
+
         self.scan_counter      += 1
 
         if self.max_scans is not None and self.scan_counter >= self.max_scans:
@@ -1362,8 +2024,10 @@ class LioNode(Node):
             rclpy.shutdown()
 
     def shutdown(self):
-        if self.viewer is not None:
-            self.viewer.close()
+        if self._debug_fh is not None:
+            self._debug_fh.flush()
+            self._debug_fh.close()
+            self._debug_fh = None
 
 
 # =============================================================================

@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/u/97/habibip1/unix/ros2_ws/src/regnonrep/build/regnonrep/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

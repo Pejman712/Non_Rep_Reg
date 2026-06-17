@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
 """
 ROS2 Odometry -> TUM trajectory writer (compatible with your "my_node" YAML namespace)
 
