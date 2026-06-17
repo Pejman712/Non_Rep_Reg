@@ -16,6 +16,7 @@ install(
     scripts/ros_non_rep.py
     scripts/ros_lio.py
     scripts/ros_lio_v2.py
+    scripts/ros_lio_v3.py
     scripts/Pctools.py
     scripts/odom_to_tum.py
     scripts/csv_to_tum.py

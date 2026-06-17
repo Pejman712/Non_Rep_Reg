@@ -1,0 +1,6 @@
+config : /u/97/habibip1/unix/ros2_ws/src/regnonrep/config/lio_v2_tier_avia_tuned_full.yaml
+bag    : /u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia
+csv    : /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/fixes_check/indoor1_p2p_primary.csv
+DONE in 394s  ATE-RMSE=17.7729 m  matched=549  offset=-1645959836.621s
+csv -> /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/fixes_check/indoor1_p2p_primary.csv
+log -> /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/fixes_check/indoor1_p2p_primary.log

@@ -51,7 +51,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import open3d as o3d
 from scipy.signal import butter, sosfilt, sosfilt_zi
+from scipy.spatial import cKDTree
 import collections
 
 import rclpy
@@ -107,18 +109,23 @@ class IESKF18:
         sigma_bg: float = 1e-4,
         sigma_ba: float = 1e-3,
         init_p_cov: float = 1e-6,
-        init_v_cov: float = 1e-4,
-        init_rot_cov: float = 1e-6,
+        init_v_cov: float = 1e-2,
+        init_rot_cov: float = 1e-2,
         init_bg_cov: float = 1e-4,
         init_ba_cov: float = 1e-4,
         init_g_cov: float = 0.01,
         max_iters: int = 3,
         conv_threshold: float = 1e-6,
+        static_init_max_omega: float = 0.1,
     ):
         self.gravity_mag = gravity_mag
         self.gravity_init_n = gravity_init_n
         self.gravity_initialized = False
         self.gravity_z_down = False
+        # Static-init stillness gate: reject (and reset) the gravity/bias window
+        # whenever |omega| exceeds this [rad/s], so the average is taken over a
+        # genuinely contiguous static interval rather than across motion.
+        self.static_init_max_omega = static_init_max_omega
         self._gravity_samples: List[np.ndarray] = []
         self._gyro_samples:    List[np.ndarray] = []
 
@@ -203,36 +210,46 @@ class IESKF18:
         if self.gravity_initialized:
             return False
         a_c = accel - self.ba
-        if abs(float(np.linalg.norm(a_c)) - self.gravity_mag) < 1.5:
-            self._gravity_samples.append(R_world @ a_c)
-            self._gyro_samples.append(omega.copy())
-            if len(self._gravity_samples) >= self.gravity_init_n:
-                g_est = np.mean(self._gravity_samples, axis=0)
-                self.bg = np.mean(self._gyro_samples, axis=0)
-                if self.gravity_z_down or g_est[2] < 0.0:
-                    g_est = -g_est
-                g_norm = float(np.linalg.norm(g_est))
+        accel_still = abs(float(np.linalg.norm(a_c)) - self.gravity_mag) < 1.5
+        gyro_still  = float(np.linalg.norm(omega)) < self.static_init_max_omega
+        if not (accel_still and gyro_still):
+            # Motion detected mid-init: discard the partial window so gravity and
+            # gyro bias are averaged over a contiguous static interval only.
+            # Averaging across motion biases g (→ wrong leveling) and the accel
+            # auto-scale, which poisons the entire post-init trajectory.
+            if self._gravity_samples:
+                self._gravity_samples.clear()
+                self._gyro_samples.clear()
+            return False
+        self._gravity_samples.append(R_world @ a_c)
+        self._gyro_samples.append(omega.copy())
+        if len(self._gravity_samples) >= self.gravity_init_n:
+            g_est = np.mean(self._gravity_samples, axis=0)
+            self.bg = np.mean(self._gyro_samples, axis=0)
+            if self.gravity_z_down or g_est[2] < 0.0:
+                g_est = -g_est
+            g_norm = float(np.linalg.norm(g_est))
 
-                # Super-LIO imu_scale: measured static accel should equal g
-                if self.auto_scale and g_norm > 1e-3:
-                    self.accel_scale = self.gravity_mag / g_norm
+            # Super-LIO imu_scale: measured static accel should equal g
+            if self.auto_scale and g_norm > 1e-3:
+                self.accel_scale = self.gravity_mag / g_norm
 
-                if self.level_at_init and g_norm > 1e-3:
-                    # Super-LIO kf_init: rotate the whole state into a
-                    # gravity-aligned world frame with yaw removed, then pin
-                    # g to the canonical vector.
-                    W = self._level_rotation(g_est)
-                    self.p  = W @ self.p
-                    self.v  = W @ self.v
-                    self.R  = W @ self.R
-                    self._p_last = W @ self._p_last
-                    self._R_last = W @ self._R_last
-                    self._g = np.array([0.0, 0.0, self.gravity_mag])
-                    self.last_level_W = W
-                else:
-                    self._g = g_est * self.accel_scale
-                self.gravity_initialized = True
-                return True
+            if self.level_at_init and g_norm > 1e-3:
+                # Super-LIO kf_init: rotate the whole state into a
+                # gravity-aligned world frame with yaw removed, then pin
+                # g to the canonical vector.
+                W = self._level_rotation(g_est)
+                self.p  = W @ self.p
+                self.v  = W @ self.v
+                self.R  = W @ self.R
+                self._p_last = W @ self._p_last
+                self._R_last = W @ self._R_last
+                self._g = np.array([0.0, 0.0, self.gravity_mag])
+                self.last_level_W = W
+            else:
+                self._g = g_est * self.accel_scale
+            self.gravity_initialized = True
+            return True
         return False
 
     # ------------------------------------------------------------------
@@ -517,6 +534,137 @@ class IESKF18:
         return True, chi2
 
     # ------------------------------------------------------------------
+    # Super-LIO point-to-plane iterated update (information form)
+    # ------------------------------------------------------------------
+    def update_point_to_plane(
+        self,
+        scan_pts: np.ndarray,        # (N,3) scan points in the BODY/sensor frame
+        map_tree: "cKDTree",         # KDTree built over map_pts (world frame)
+        map_pts: np.ndarray,         # (M,3) submap points, world frame
+        map_normals: np.ndarray,     # (M,3) unit normals at map_pts
+        sigma: float = 0.05,
+        max_corr_dist: float = 0.5,
+        max_iters: int = 3,
+        min_corr: int = 20,
+        huber_delta: float = 0.1,
+    ) -> Tuple[bool, int, float]:
+        """
+        FAST-LIO/Super-LIO style point-to-plane residual update, run AFTER the
+        GICP/non-rep pose update (sequential fusion).  Uses the post-GICP state
+        as the prior, re-searches correspondences each iteration.
+
+        For each scan point  x_b  the world point is  x_w = R·x_b + p.  Its
+        nearest map point  q  carries a plane normal  n, giving the residual
+            r = nᵀ(x_w − q).
+        Error-state Jacobian (only δp and δθ are observed):
+            ∂r/∂δp = nᵀ
+            ∂r/∂δθ = −(Rᵀn) × x_b     (right perturbation R ← R·exp(δθ))
+        Solved in the same information form as update():
+            A = P_k⁻¹ + HᵀV⁻¹H,  Q_k = A⁻¹,  dx = Q_k·b + (Q_k·A − I)·dx_prior.
+        Returns (accepted, n_correspondences, residual_RMS).
+        """
+        if scan_pts.shape[0] == 0:
+            return False, 0, float("nan")
+        inv_var = 1.0 / (sigma * sigma)
+
+        # Prior = current (post-GICP) state
+        p_pred  = self.p.copy();   v_pred  = self.v.copy()
+        R_pred  = self.R.copy();   bg_pred = self.bg.copy()
+        ba_pred = self.ba.copy();  g_pred  = self._g.copy()
+        P_pred  = self.P.copy()
+
+        Q_k   = self.P.copy()
+        dx    = np.zeros(18)
+        ncorr = 0
+        rms   = float("nan")
+
+        for it in range(max_iters):
+            x_w = (self.R @ scan_pts.T).T + self.p          # (N,3) world
+            dist, idx = map_tree.query(x_w, k=1)
+            valid = dist < max_corr_dist
+            ncorr = int(valid.sum())
+            if ncorr < min_corr:
+                if it == 0:
+                    return False, ncorr, rms
+                break
+
+            n   = map_normals[idx[valid]]                    # (M,3)
+            q   = map_pts[idx[valid]]                         # (M,3)
+            x_b = scan_pts[valid]                             # (M,3)
+            r   = np.einsum("ij,ij->i", n, x_w[valid] - q)   # (M,)
+            rms = float(np.sqrt(np.mean(r * r)))
+
+            # Huber robust weights
+            ar = np.abs(r)
+            w  = np.ones_like(ar)
+            big = ar > huber_delta
+            w[big] = huber_delta / ar[big]
+            W = w * inv_var                                  # (M,)
+
+            # Jacobian blocks (only δp, δθ non-zero)
+            Hp  = n                                          # ∂r/∂δp = nᵀ
+            Rn  = n @ self.R                                 # rows = (Rᵀ n_i)ᵀ
+            Hth = -np.cross(Rn, x_b)                         # ∂r/∂δθ
+
+            Wp  = Hp  * W[:, None]
+            Wth = Hth * W[:, None]
+            HTVH = np.zeros((18, 18))
+            HTVH[0:3, 0:3] = Hp.T  @ Wp
+            HTVH[0:3, 6:9] = Hp.T  @ Wth
+            HTVH[6:9, 0:3] = Hth.T @ Wp
+            HTVH[6:9, 6:9] = Hth.T @ Wth
+
+            b = np.zeros(18)
+            Wr = W * (-r)                                    # innovation = 0 − r
+            b[0:3] = Hp.T  @ Wr
+            b[6:9] = Hth.T @ Wr
+
+            # Prior deviation from the post-GICP prediction
+            dx_prior = np.zeros(18)
+            dx_prior[0:3]   = self.p  - p_pred
+            dx_prior[3:6]   = self.v  - v_pred
+            dx_prior[6:9]   = so3_log(R_pred.T @ self.R)
+            dx_prior[9:12]  = self.bg - bg_pred
+            dx_prior[12:15] = self.ba - ba_pred
+            dx_prior[15:18] = self._g - g_pred
+
+            J_p = np.eye(3) - 0.5 * _skew(dx_prior[6:9])
+            G_p = np.eye(18);  G_p[6:9, 6:9] = J_p
+            P_k = G_p @ P_pred @ G_p.T
+            dx_prior_c = G_p @ dx_prior
+
+            try:
+                A   = np.linalg.inv(P_k) + HTVH
+                Q_k = np.linalg.inv(A)
+            except np.linalg.LinAlgError:
+                return False, ncorr, rms
+
+            K_x = Q_k @ HTVH
+            dx  = Q_k @ b + (K_x - np.eye(18)) @ dx_prior_c
+
+            self.p   = self.p  + dx[0:3]
+            self.v   = self.v  + dx[3:6]
+            self.R   = self.R  @ so3_exp(dx[6:9])
+            U, _, Vt = np.linalg.svd(self.R);  self.R = U @ Vt
+            self.bg  = self.bg + dx[9:12]
+            self.ba  = self.ba + dx[12:15]
+            self._g  = self._g + dx[15:18]
+            g_n = float(np.linalg.norm(self._g))
+            if g_n > 1e-3:
+                self._g = self.gravity_mag * self._g / g_n
+
+            if it > 0 and float(np.max(np.abs(dx))) < self.conv_threshold:
+                break
+
+        # Covariance update (information form + SO(3) reset)
+        self.P = Q_k
+        J_r = np.eye(3) - 0.5 * _skew(dx[6:9])
+        G_r = np.eye(18);  G_r[6:9, 6:9] = J_r
+        self.P = G_r @ self.P @ G_r.T
+        self.P = 0.5 * (self.P + self.P.T)
+        return True, ncorr, rms
+
+    # ------------------------------------------------------------------
     # ZUPT — extended to 18-DOF
     # ------------------------------------------------------------------
     def zupt_update(self, sigma_v: float = 0.01) -> None:
@@ -598,6 +746,69 @@ class LioNodeV2(LioNode):
         # Declare extra parameters not present in LioNode
         self.declare_parameter("ieskf_init_g_cov", 0.01)
         init_g_cov = float(self.get_parameter("ieskf_init_g_cov").value)
+        # Initial attitude/velocity covariance — previously frozen at the
+        # IESKF18 defaults (1e-6 / 1e-4) because LioNodeV2 never passed them.
+        # 1e-6 rad² (~0.001 rad) made the start so over-confident that GICP
+        # could not correct early attitude error → drastic initial divergence.
+        # Now exposed and loosened so early scans can re-orient the estimate.
+        self.declare_parameter("ieskf_init_rot_cov", 1e-2)
+        self.declare_parameter("ieskf_init_v_cov", 1e-2)
+        init_rot_cov = float(self.get_parameter("ieskf_init_rot_cov").value)
+        init_v_cov   = float(self.get_parameter("ieskf_init_v_cov").value)
+        # Static-init stillness gate [rad/s]: reject the gravity/bias window
+        # when the platform is rotating, so g / gyro-bias / accel-scale are
+        # estimated over a genuinely static interval.
+        self.declare_parameter("static_init_max_omega", 0.1)
+        static_init_max_omega = float(self.get_parameter("static_init_max_omega").value)
+        # Skip the post-leveling map wipe when the leveling rotation is below
+        # this angle [rad]: a near-identity W means the map built so far is
+        # already (essentially) in the leveled frame, so discarding it only
+        # throws away the submap the first scans need to register against.
+        self.declare_parameter("level_restart_min_angle", 0.02)
+        self._level_restart_min_angle = float(
+            self.get_parameter("level_restart_min_angle").value)
+        # ---- Super-LIO point-to-plane refinement (sequential, after GICP) ----
+        # Adds a FAST-LIO/Super-LIO point-to-plane iESKF update against the
+        # local submap on top of the (unchanged) non-rep GICP observation.
+        self.declare_parameter("p2p_enable", True)
+        self.declare_parameter("p2p_sigma", 0.05)          # plane residual std [m]
+        self.declare_parameter("p2p_max_corr_dist", 0.5)   # corr. reject dist [m]
+        self.declare_parameter("p2p_scan_voxel", 0.4)      # scan downsample [m]
+        self.declare_parameter("p2p_min_corr", 30)         # min correspondences
+        self.declare_parameter("p2p_normal_radius", 1.0)   # submap normal radius [m]
+        self.declare_parameter("p2p_max_iters", 3)
+        self.declare_parameter("p2p_huber_delta", 0.1)     # robust threshold [m]
+        # ---- Speed knobs ----
+        # submap_voxel: coarsen the submap before normal/KDTree build (the
+        # dominant per-scan cost).  rebuild_dist: reuse the cached submap tree +
+        # normals until the platform moves this far [m], so most scans skip the
+        # rebuild entirely.
+        self.declare_parameter("p2p_submap_voxel", 0.3)
+        self.declare_parameter("p2p_rebuild_dist", 0.5)
+        # ---- P2P-primary fusion ----
+        # When True, point-to-plane is the primary update and the non-rep GICP
+        # update is applied ONLY when P2P is weak: correspondence ratio
+        # (n_corr / n_scan_pts) < p2p_min_ratio, or residual RMS > p2p_max_rms.
+        # When False, falls back to sequential fusion (GICP then P2P every scan).
+        self.declare_parameter("p2p_primary", True)
+        self.declare_parameter("p2p_min_ratio", 0.3)
+        self.declare_parameter("p2p_max_rms", 0.15)
+        self.p2p_enable        = bool(self.get_parameter("p2p_enable").value)
+        self.p2p_sigma         = float(self.get_parameter("p2p_sigma").value)
+        self.p2p_max_corr_dist = float(self.get_parameter("p2p_max_corr_dist").value)
+        self.p2p_scan_voxel    = float(self.get_parameter("p2p_scan_voxel").value)
+        self.p2p_min_corr      = int(self.get_parameter("p2p_min_corr").value)
+        self.p2p_normal_radius = float(self.get_parameter("p2p_normal_radius").value)
+        self.p2p_max_iters     = int(self.get_parameter("p2p_max_iters").value)
+        self.p2p_huber_delta   = float(self.get_parameter("p2p_huber_delta").value)
+        self.p2p_submap_voxel  = float(self.get_parameter("p2p_submap_voxel").value)
+        self.p2p_rebuild_dist  = float(self.get_parameter("p2p_rebuild_dist").value)
+        self.p2p_primary       = bool(self.get_parameter("p2p_primary").value)
+        self.p2p_min_ratio     = float(self.get_parameter("p2p_min_ratio").value)
+        self.p2p_max_rms       = float(self.get_parameter("p2p_max_rms").value)
+        self._p2p_scan_count   = 0      # for throttled debug logging
+        self._p2p_fallback_count = 0    # scans that fell back to non-rep GICP
+        self._p2p_cache        = None   # (center, tree, map_pts, map_nrm, map_len)
         # Super-LIO ports (all default on; only active when imu_use_accel=true
         # except undistort_translation which degrades to rotation-only anyway)
         self.declare_parameter("level_init", True)
@@ -639,10 +850,13 @@ class LioNodeV2(LioNode):
             sigma_bg        = self.ieskf_sigma_bg,
             sigma_ba        = self.ieskf_sigma_ba,
             init_p_cov      = self.ieskf_init_p_cov,
+            init_v_cov      = init_v_cov,
+            init_rot_cov    = init_rot_cov,
             init_bg_cov     = self.ieskf_init_bg_cov,
             init_ba_cov     = self.ieskf_init_ba_cov,
             init_g_cov      = init_g_cov,
             max_iters       = self.ieskf_max_iters,
+            static_init_max_omega = static_init_max_omega,
         )
         self.ieskf.gravity_z_down = self.imu_gravity_z_down
         self.ieskf.bg = old_bg
@@ -658,6 +872,17 @@ class LioNodeV2(LioNode):
         self.get_logger().info(f"  imu_auto_scale:             {imu_auto_scale}")
         self.get_logger().info(f"  undistort_translation:      {self.undistort_translation}")
         self.get_logger().info(f"  init_g_cov:                 {init_g_cov}")
+        self.get_logger().info(f"  init_rot_cov / init_v_cov:  {init_rot_cov} / {init_v_cov}")
+        self.get_logger().info(f"  static_init_max_omega:      {static_init_max_omega} rad/s")
+        self.get_logger().info(f"  level_restart_min_angle:    {self._level_restart_min_angle} rad")
+        self.get_logger().info(f"  point-to-plane (Super-LIO): enable={self.p2p_enable}  σ={self.p2p_sigma}  "
+                               f"corr_dist={self.p2p_max_corr_dist}  scan_voxel={self.p2p_scan_voxel}  "
+                               f"min_corr={self.p2p_min_corr}  iters={self.p2p_max_iters}")
+        self.get_logger().info(f"  p2p speed:                  submap_voxel={self.p2p_submap_voxel}  "
+                               f"rebuild_dist={self.p2p_rebuild_dist} m")
+        self.get_logger().info(f"  p2p_primary:                {self.p2p_primary}  "
+                               f"(non-rep GICP fallback when corr_ratio<{self.p2p_min_ratio} "
+                               f"or rms>{self.p2p_max_rms} m)")
         self.get_logger().info(f"  ieskf_sigma_gyro/accel:     {self.ieskf_sigma_gyro} / {self.ieskf_sigma_accel}")
 
     # -------------------------------------------------------------------------
@@ -672,6 +897,122 @@ class LioNodeV2(LioNode):
                 and not self.ieskf.gravity_initialized):
             return
         super().cb_cloud(msg)
+
+    # -------------------------------------------------------------------------
+    # Scan measurement update override (P2P-primary fusion).
+    #   p2p_primary=True : run point-to-plane first; apply the non-rep GICP
+    #                      update only when P2P is weak (low correspondence
+    #                      ratio or high residual RMS).
+    #   p2p_primary=False: sequential — non-rep GICP update now (inherited),
+    #                      P2P refinement runs afterwards in _post_gicp_update.
+    # -------------------------------------------------------------------------
+    def _gicp_measurement_update(self, T, R_n, reg_conf, scan_cloud):
+        if not self.p2p_primary:
+            return super()._gicp_measurement_update(T, R_n, reg_conf, scan_cloud)
+
+        ran, ncorr, rms, n_scan = self._do_p2p(scan_cloud)
+        corr_ratio = ncorr / max(n_scan, 1)
+        p2p_weak = (not ran
+                    or not np.isfinite(rms)
+                    or corr_ratio < self.p2p_min_ratio
+                    or rms > self.p2p_max_rms)
+
+        if p2p_weak:
+            # P2P unreliable on this scan → use the non-rep GICP registration.
+            self._p2p_fallback_count += 1
+            accepted, chi2 = self.ieskf.update(T, R_n, self._chi2_threshold)
+            if not accepted:
+                self.get_logger().warn(
+                    f"Scan {self.scan_counter}: P2P weak "
+                    f"(corr={corr_ratio:.2f}, rms={rms:.3f}) AND GICP REJECTED "
+                    f"(χ²={chi2:.1f}) — IMU holds")
+            return accepted, chi2
+
+        # P2P sufficient — it already corrected the state; skip non-rep GICP.
+        return True, 0.0
+
+    # -------------------------------------------------------------------------
+    # Sequential-mode P2P refinement hook (no-op in P2P-primary mode, where P2P
+    # is already run inside _gicp_measurement_update).
+    # -------------------------------------------------------------------------
+    def _post_gicp_update(self, scan_cloud) -> None:
+        if self.p2p_primary:
+            return
+        self._do_p2p(scan_cloud)
+
+    # -------------------------------------------------------------------------
+    # Run one point-to-plane update against the cached local submap.
+    # Returns (ran, n_corr, residual_rms, n_scan_pts).  ran=False when P2P could
+    # not run (no map / too few points / no correspondences).
+    # -------------------------------------------------------------------------
+    def _do_p2p(self, scan_cloud):
+        if not self.p2p_enable or not self.use_imu:
+            return False, 0, float("nan"), 0
+        if self.gicp_submap_radius <= 0 or len(self.voxel_map) < self._submap_min_voxels:
+            return False, 0, float("nan"), 0
+        if scan_cloud is None or len(scan_cloud.points) < 30:
+            return False, 0, float("nan"), 0
+
+        # Downsample the scan (body frame) for the residual set
+        scan_ds = (scan_cloud.voxel_down_sample(self.p2p_scan_voxel)
+                   if self.p2p_scan_voxel > 0 else scan_cloud)
+        pts_b = np.asarray(scan_ds.points, dtype=float)
+        n_scan = pts_b.shape[0]
+        if n_scan < self.p2p_min_corr:
+            return False, 0, float("nan"), n_scan
+
+        # Local submap (world frame) — cached/reused across nearby scans
+        tree, map_pts, map_nrm = self._p2p_submap(self.ieskf.p)
+        if tree is None:
+            return False, 0, float("nan"), n_scan
+
+        ok, ncorr, rms = self.ieskf.update_point_to_plane(
+            pts_b, tree, map_pts, map_nrm,
+            sigma=self.p2p_sigma,
+            max_corr_dist=self.p2p_max_corr_dist,
+            max_iters=self.p2p_max_iters,
+            min_corr=self.p2p_min_corr,
+            huber_delta=self.p2p_huber_delta,
+        )
+
+        self._p2p_scan_count += 1
+        if self._p2p_scan_count % 50 == 0:
+            self.get_logger().info(
+                f"[p2p] scan {self.scan_counter}: "
+                f"{'OK' if ok else 'skip'} corr={ncorr}/{n_scan} rms={rms:.4f} m  "
+                f"gicp_fallbacks={self._p2p_fallback_count}")
+        return ok, ncorr, rms, n_scan
+
+    def _p2p_submap(self, center: np.ndarray):
+        """Local submap (points, normals, KDTree) for point-to-plane, cached.
+
+        Estimating normals + building the KDTree over the submap is the dominant
+        per-scan cost.  We reuse the cached result until the platform moves more
+        than p2p_rebuild_dist or the map grows appreciably, so most scans skip
+        the rebuild.  Returns (tree, pts, normals) or (None, None, None)."""
+        c = self._p2p_cache
+        if (c is not None
+                and float(np.linalg.norm(center - c[0])) < self.p2p_rebuild_dist
+                and (len(self.voxel_map) - c[4]) < 2000):
+            return c[1], c[2], c[3]
+
+        submap = self.voxel_map.get_submap(center, self.gicp_submap_radius)
+        if len(submap.points) < 30:
+            return None, None, None
+        if self.p2p_submap_voxel > 0:
+            submap = submap.voxel_down_sample(self.p2p_submap_voxel)
+            if len(submap.points) < 30:
+                return None, None, None
+        submap.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=self.p2p_normal_radius, max_nn=20))
+        map_pts = np.asarray(submap.points, dtype=float)
+        map_nrm = np.asarray(submap.normals, dtype=float)
+        if map_pts.shape[0] < 30 or map_nrm.shape[0] != map_pts.shape[0]:
+            return None, None, None
+
+        tree = cKDTree(map_pts)
+        self._p2p_cache = (center.copy(), tree, map_pts, map_nrm, len(self.voxel_map))
+        return tree, map_pts, map_nrm
 
     # -------------------------------------------------------------------------
     # IMU callback override — record propagated states (Super-LIO
@@ -696,15 +1037,28 @@ class LioNodeV2(LioNode):
         # runs kf_init strictly before map_init — this is the equivalent).
         if (not was_init and self.ieskf.gravity_initialized
                 and self.ieskf.last_level_W is not None):
-            self.voxel_map._cells.clear()
-            self.voxel_map._colors.clear()
-            self.voxel_map._order.clear()
-            self.prev_cloud = None
-            self._prop_states.clear()
-            self.get_logger().info(
-                f"[level_init] World frame leveled (gravity-aligned, yaw removed); "
-                f"accel_scale={self.ieskf.accel_scale:.4f} — map restarted"
-            )
+            level_angle = float(np.linalg.norm(so3_log(self.ieskf.last_level_W)))
+            if level_angle > self._level_restart_min_angle:
+                self.voxel_map._cells.clear()
+                self.voxel_map._colors.clear()
+                self.voxel_map._order.clear()
+                self.prev_cloud = None
+                self._prop_states.clear()
+                self._p2p_cache = None
+                self.get_logger().info(
+                    f"[level_init] World frame leveled by {level_angle:.4f} rad "
+                    f"(gravity-aligned, yaw removed); "
+                    f"accel_scale={self.ieskf.accel_scale:.4f} — map restarted"
+                )
+            else:
+                # Negligible leveling: the state rotation is tiny, so the map
+                # is already in (essentially) the leveled frame — keep it so the
+                # first post-init scans have a submap to register against.
+                self.get_logger().info(
+                    f"[level_init] Leveling negligible ({level_angle:.4f} rad ≤ "
+                    f"{self._level_restart_min_angle} rad); "
+                    f"accel_scale={self.ieskf.accel_scale:.4f} — map kept"
+                )
 
     # -------------------------------------------------------------------------
     # Full undistortion override (Super-LIO Propagation_Undistort):

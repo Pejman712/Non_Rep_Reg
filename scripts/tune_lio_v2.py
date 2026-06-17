@@ -213,8 +213,15 @@ def sample_params(trial) -> Dict[str, object]:
         "ieskf_init_bg_cov": trial.suggest_float("ieskf_init_bg_cov", 1e-5, 1e-1, log=True),
         "ieskf_init_ba_cov": trial.suggest_float("ieskf_init_ba_cov", 1e-5, 1e-1, log=True),
         "ieskf_init_g_cov":  trial.suggest_float("ieskf_init_g_cov",  1e-4, 1e0,  log=True),
+        # Initial attitude/velocity covariance — now exposed by ros_lio_v2 so the
+        # over-confident frozen prior (was 1e-6) can be tuned away.
+        "ieskf_init_rot_cov": trial.suggest_float("ieskf_init_rot_cov", 1e-4, 1e-1, log=True),
+        "ieskf_init_v_cov":   trial.suggest_float("ieskf_init_v_cov",   1e-4, 1e-1, log=True),
         # ---- Gating / iterations -----------------------------------------
-        "gicp_chi2_threshold": trial.suggest_float("gicp_chi2_threshold", 10.0, 200.0),
+        # Capped to a robust range: the old [10,200] let the optimiser disable
+        # outlier rejection (→ sudden jumps).  Point-to-plane now supplies the
+        # map constraint, so the GICP gate can stay tight.
+        "gicp_chi2_threshold": trial.suggest_float("gicp_chi2_threshold", 10.0, 30.0),
         "ieskf_max_iters":     trial.suggest_int("ieskf_max_iters", 1, 6),
         # ---- Motion-adaptive noise scaling -------------------------------
         "motion_rot_noise_scale":       trial.suggest_float("motion_rot_noise_scale", 1.0, 10.0),
@@ -229,6 +236,14 @@ def sample_params(trial) -> Dict[str, object]:
         "gicp_submap_radius":     trial.suggest_float("gicp_submap_radius", 5.0, 50.0),
         "gicp_min_conf":          trial.suggest_float("gicp_min_conf", 0.05, 0.5),
         "map_voxel":              trial.suggest_float("map_voxel", 0.05, 0.3, log=True),
+        # ---- Super-LIO point-to-plane refinement (sequential, after GICP) -
+        "p2p_sigma":         trial.suggest_float("p2p_sigma", 1e-2, 2e-1, log=True),
+        "p2p_max_corr_dist": trial.suggest_float("p2p_max_corr_dist", 0.2, 1.0),
+        "p2p_scan_voxel":    trial.suggest_float("p2p_scan_voxel", 0.2, 0.5),
+        "p2p_submap_voxel":  trial.suggest_float("p2p_submap_voxel", 0.2, 0.5),
+        "p2p_min_corr":      trial.suggest_int("p2p_min_corr", 20, 80),
+        "p2p_huber_delta":   trial.suggest_float("p2p_huber_delta", 0.05, 0.3),
+        "p2p_max_iters":     trial.suggest_int("p2p_max_iters", 2, 4),
         # ---- Initial-guess fusion weights (complementary) ----------------
         "imu_base_weight":    imu_w,
         "nonrep_base_weight": 1.0 - imu_w,
@@ -271,7 +286,7 @@ def main():
     ap.add_argument("--settle", type=float, default=3.0)
     ap.add_argument("--post-wait", type=float, default=8.0)
     ap.add_argument("--max-diff", type=float, default=0.05)
-    ap.add_argument("--study", default="lio_v2_full_indoor1")
+    ap.add_argument("--study", default="lio_v2_full_indoor1_p2p")
     ap.add_argument("--storage", default="")
     ap.add_argument("--baseline-only", action="store_true")
     args = ap.parse_args()
@@ -313,7 +328,7 @@ def main():
     print(f"  value (ATE-RMSE): {study.best_value:.4f} m")
     for k, v in study.best_params.items():
         print(f"  {k}: {v}")
-    best_cfg = os.path.join(PKG, "config", "lio_v2_tier_avia_tuned_full.yaml")
+    best_cfg = os.path.join(PKG, "config", "lio_v2_tier_avia_tuned_p2p.yaml")
     best = dict(study.best_params)
     best["nonrep_base_weight"] = 1.0 - best.get("imu_base_weight", 0.3)
     render_cfg(base_cfg, best, best_cfg)

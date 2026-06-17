@@ -24,42 +24,42 @@ lio_node_v2:
     accumulate_voxel: 0.1
     accumulate_max_points: 1500000
     force_z_zero: true
-    soft_z_sigma: 0.055950746357947966
+    soft_z_sigma: 0.4439102767051397
     zupt_omega_thresh: 0.05
     zupt_accel_thresh: 0.3
-    zupt_sigma_v: 0.0233596350262616
+    zupt_sigma_v: 0.0023426581058204046
     motion_omega_stationary: 0.05
     motion_omega_rotating: 0.3
     motion_accel_stationary: 0.3
     motion_accel_translating: 0.8
     motion_skip_stationary: true
-    motion_rot_noise_scale: 3.741523922560336
-    motion_trans_pos_noise_scale: 0.578593358631281
+    motion_rot_noise_scale: 5.680612190600297
+    motion_trans_pos_noise_scale: 2.7788803687820707
     visualize: false
-    map_voxel: 0.1638749409902834
+    map_voxel: 0.05859095211742173
     level_init: true
     imu_auto_scale: true
     undistort_translation: true
-    ieskf_sigma_gyro: 0.000816845589476017
-    ieskf_sigma_accel: 0.037183641805732096
-    ieskf_sigma_bg: 2.5081156860452307e-05
-    ieskf_sigma_ba: 0.0010677482709481358
-    ieskf_init_p_cov: 0.26926469100861794
-    ieskf_init_bg_cov: 4.809461967501571e-05
-    ieskf_init_ba_cov: 1.8205657658407255e-05
-    ieskf_init_g_cov: 0.6245139574743068
-    ieskf_max_iters: 5
-    ieskf_meas_noise_pos: 0.039710847107924725
-    ieskf_meas_noise_rot: 0.0012790390175145834
-    imu_base_weight: 0.3797256589643225
-    nonrep_base_weight: 0.6202743410356775
-    gicp_min_conf: 0.1664509917200076
-    gicp_chi2_threshold: 193.47008628416629
+    ieskf_sigma_gyro: 0.007902619549708232
+    ieskf_sigma_accel: 0.08536189862866832
+    ieskf_sigma_bg: 0.0004138040112561013
+    ieskf_sigma_ba: 0.0004066563313514797
+    ieskf_init_p_cov: 0.057624872164786026
+    ieskf_init_bg_cov: 3.077180271250682e-05
+    ieskf_init_ba_cov: 0.0009565499215943821
+    ieskf_init_g_cov: 0.00013726318898045882
+    ieskf_max_iters: 2
+    ieskf_meas_noise_pos: 0.0018349072049055448
+    ieskf_meas_noise_rot: 0.037535371452331254
+    imu_base_weight: 0.10854643368675157
+    nonrep_base_weight: 0.8914535663132485
+    gicp_min_conf: 0.46484340576040256
+    gicp_chi2_threshold: 23.25044568707964
     use_pctools_gicp: true
-    gicp_max_corr_distance: 1.0491720568015048
-    gicp_voxel_size: 0.15636765183901852
-    gicp_max_iterations: 22
-    gicp_submap_radius: 45.91941809354519
+    gicp_max_corr_distance: 3.9880977051250155
+    gicp_voxel_size: 0.4349796564256659
+    gicp_max_iterations: 92
+    gicp_submap_radius: 31.905499046498832
     voxel_map_prune_radius: 80.0
     voxel_map_max_voxels: 400000
     publish_odom: true
@@ -68,3 +68,12 @@ lio_node_v2:
     publish_tf: false
     map_frame: map
     base_frame: base_link
+    ieskf_init_rot_cov: 0.053451661106468214
+    ieskf_init_v_cov: 0.0005975027999960298
+    p2p_sigma: 0.017987863473362915
+    p2p_max_corr_dist: 0.23618183112843047
+    p2p_scan_voxel: 0.2975990992289793
+    p2p_submap_voxel: 0.31660318690684464
+    p2p_min_corr: 36
+    p2p_huber_delta: 0.2571843772879823
+    p2p_max_iters: 3

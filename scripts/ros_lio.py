@@ -1292,6 +1292,38 @@ class LioNode(Node):
         return _o3d_gicp
 
     # -------------------------------------------------------------------------
+    # Post-GICP observation hook.
+    # Called inside cb_cloud right after the GICP/non-rep iESKF update (state is
+    # post-update; debug row + odom are published afterwards).  No-op here so v1
+    # behaviour is unchanged; LioNodeV2 overrides it to add Super-LIO
+    # point-to-plane refinement against the local submap.
+    #   scan_cloud  : current scan, body/sensor frame (== self.prev_cloud once set)
+    # -------------------------------------------------------------------------
+    def _post_gicp_update(self, scan_cloud) -> None:
+        return
+
+    # -------------------------------------------------------------------------
+    # Scan measurement update (overridable).  Default: apply the non-rep GICP
+    # relative-pose update to the iESKF.  Returns (accepted, chi2).
+    # LioNodeV2 overrides this to optionally run Super-LIO point-to-plane first
+    # and use this GICP update only as a low-P2P-confidence fallback.
+    # -------------------------------------------------------------------------
+    def _gicp_measurement_update(self, T, R_n, reg_conf, scan_cloud):
+        accepted, chi2 = self.ieskf.update(T, R_n, self._chi2_threshold)
+        if not accepted:
+            self.get_logger().warn(
+                f"Scan {self.scan_counter}: GICP update REJECTED "
+                f"(χ²={chi2:.1f} > {self._chi2_threshold:.1f}) — "
+                f"conf={reg_conf:.2f}, IMU holds"
+            )
+        elif reg_conf < self.gicp_min_conf:
+            self.get_logger().warn(
+                f"Scan {self.scan_counter}: low GICP conf "
+                f"({reg_conf:.2f}), χ²={chi2:.1f}"
+            )
+        return accepted, chi2
+
+    # -------------------------------------------------------------------------
     # IIR Butterworth filter helper (runs at full 200 Hz, sample-by-sample)
     # -------------------------------------------------------------------------
     def _fir_filter_imu(self, omega: np.ndarray, accel: np.ndarray
@@ -1895,21 +1927,13 @@ class LioNode(Node):
                         H_gicp, reg_conf, _pos_scale, _rot_scale)
 
                     if self.use_imu:
-                        accepted, chi2 = self.ieskf.update(T, R_n, self._chi2_threshold)
+                        # Scan measurement update (overridable).  v1: GICP pose
+                        # update.  v2 may run point-to-plane first and gate this
+                        # non-rep GICP update on P2P confidence.
+                        accepted, chi2 = self._gicp_measurement_update(
+                            T, R_n, reg_conf, cloud)
                         _dbg_chi2 = chi2
                         _dbg_acc  = int(accepted)
-
-                        if not accepted:
-                            self.get_logger().warn(
-                                f"Scan {self.scan_counter}: GICP update REJECTED "
-                                f"(χ²={chi2:.1f} > {self._chi2_threshold:.1f}) — "
-                                f"conf={reg_conf:.2f}, IMU holds"
-                            )
-                        elif reg_conf < self.gicp_min_conf:
-                            self.get_logger().warn(
-                                f"Scan {self.scan_counter}: low GICP conf "
-                                f"({reg_conf:.2f}), χ²={chi2:.1f}"
-                            )
 
                         # Repropagate any buffered IMU samples that arrived during GICP
                         if len(new_imu_since_scan) > 0:
@@ -1932,6 +1956,11 @@ class LioNode(Node):
                         U, _, Vt = np.linalg.svd(self.ieskf.R)
                         self.ieskf.R = U @ Vt
                         self.ieskf.v = (self.ieskf.p - p_prev) / dt_scan
+
+                    # Super-LIO point-to-plane refinement against the local
+                    # submap (no-op in v1; LioNodeV2 overrides).  Runs after the
+                    # GICP/non-rep update so both observations correct this scan.
+                    self._post_gicp_update(cloud)
 
                     if self.force_z_zero:
                         if self.soft_z_sigma > 0.0:
