@@ -4,14 +4,14 @@ lio_node_v2:
     # -------------------------
     # LiDAR input
     # -------------------------
-    lidar_topic: "/eve/lidar3d"
+    lidar_topic: "/utlidar/cloud"
     queue_size: 10
 
     # -------------------------
     # IMU input
     # -------------------------
     use_imu: true
-    imu_topic: "/eve/imu/data"
+    imu_topic: "/utlidar/imu"
     imu_gravity_mag: 9.81        # m/s², gravity norm used as constraint on ||g||
     imu_gravity_init_n: 400      # static IMU samples for gravity init (1 s at 400 Hz)
     imu_gravity_z_down: false    # set true if sensor z-axis points down

@@ -1,9 +1,9 @@
 lio_node_v2:
   ros__parameters:
-    lidar_topic: /avia/livox/points
+    lidar_topic: /utlidar/cloud
     queue_size: 5
     use_imu: true
-    imu_topic: /avia/livox/imu
+    imu_topic: /utlidar/imu
     imu_gravity_mag: 9.81
     imu_gravity_init_n: 200
     imu_gravity_z_down: false

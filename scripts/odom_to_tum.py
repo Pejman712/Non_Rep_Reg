@@ -25,6 +25,8 @@ Notes:
 """
 
 import os
+import time
+import statistics
 from typing import Optional
 
 import rclpy
@@ -79,6 +81,12 @@ class OdomToTUM(Node):
         self._fh = None
         self._count = 0
         self.sub = None
+        # per-pose wall-clock interval — a method-agnostic proxy for per-scan
+        # processing time (exact when the node is the bottleneck under reliable
+        # QoS back-pressure; bag-limited otherwise).  Works for every method
+        # since all odometry flows through this recorder.
+        self._dt_ms = []
+        self._last_wall = None
 
         if not self.enabled:
             self.get_logger().info("odom_to_tum.enabled=false -> not subscribing / not writing.")
@@ -97,6 +105,11 @@ class OdomToTUM(Node):
     def cb(self, msg: Odometry):
         if self._fh is None:
             return
+
+        w = time.perf_counter()
+        if self._last_wall is not None:
+            self._dt_ms.append((w - self._last_wall) * 1000.0)
+        self._last_wall = w
 
         if self.use_msg_time:
             t = stamp_to_float_seconds(msg.header.stamp)
@@ -123,6 +136,16 @@ class OdomToTUM(Node):
 
     def destroy_node(self):
         try:
+            if self._dt_ms:
+                s = sorted(self._dt_ms)
+                p95 = s[min(len(s) - 1, int(0.95 * len(s)))]
+                self.get_logger().info(
+                    "[timing] inter-pose wall interval: "
+                    f"mean={statistics.mean(s):.2f} median={statistics.median(s):.2f} "
+                    f"p95={p95:.2f} max={s[-1]:.2f} ms over {len(s)} poses")
+        except Exception:
+            pass
+        try:
             if self._fh is not None:
                 self._fh.flush()
                 self._fh.close()
@@ -132,8 +155,12 @@ class OdomToTUM(Node):
 
 
 def main():
+    import signal
     rclpy.init()
     node: Optional[OdomToTUM] = None
+    # benchmark stops the recorder with SIGTERM — convert to a clean shutdown so
+    # the timing summary prints and the final TUM writes are flushed.
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
         node = OdomToTUM()
         rclpy.spin(node)

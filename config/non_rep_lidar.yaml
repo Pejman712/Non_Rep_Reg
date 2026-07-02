@@ -1,11 +1,11 @@
-my_node:
+non_rep_lidar:
   ros__parameters:
 
     # -------------------------
     # ROS / Input
     # -------------------------
-    #lidar_topic: "/livox/points"
-    lidar_topic: "/eve/lidar3d"
+    lidar_topic: "/utlidar/cloud"
+    #lidar_topic: "/eve/lidar3d"
     queue_size: 10
 
     # -------------------------
