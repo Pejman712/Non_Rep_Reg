@@ -19,7 +19,7 @@ with hysteresis in between.
 Everything else (campaign-best params, guards, ZUPT, degeneracy routing) is
 inherited from nrlio_optimized.
 
-    ros2 run regnonrep lio_nrlio_op_den.py --ros-args -p den_ratio_high:=1.15 -p den_ratio_low:=1.15
+    ros2 run regnonrep lio_nrlio_op_den.py --ros-args -p den_ratio_high:=0.9 -p den_ratio_low:=0.9
 """
 from collections import deque
 
@@ -39,11 +39,10 @@ class SuperLioNRLIOOpDen(SuperLioNRLIOOpt):
         gp = self.declare_parameter
         self.den_voxel = float(gp("den_voxel", 0.3).value)         # density grid cell [m]
         self.den_subsample = int(gp("den_subsample", 4000).value)  # cap for the density estimate
-        # Tuned live in open_close_web_server.py (2026-07-09): a single 1.15
-        # threshold (no hysteresis band) gave the cleanest dense/open split across
-        # the datasets — ratio>1.15 = denser than usual = CLOSED = p2p, else OPEN.
-        self.den_ratio_high = float(gp("den_ratio_high", 1.15).value)  # > → closed → p2p
-        self.den_ratio_low = float(gp("den_ratio_low", 1.15).value)    # < → open → GICP
+        # Tuned live in open_close_web_server.py: a single 0.9 threshold (no
+        # hysteresis band) — ratio>0.9 = denser than usual = CLOSED = p2p, else OPEN.
+        self.den_ratio_high = float(gp("den_ratio_high", 0.9).value)   # > → closed → p2p
+        self.den_ratio_low = float(gp("den_ratio_low", 0.9).value)     # < → open → GICP
         self.den_base_alpha = float(gp("den_base_alpha", 0.02).value)  # baseline EMA rate
         # LONG smoothing window: raw per-scan density swings ~3x within one closed
         # room purely from narrow-FoV viewing incidence (near wall head-on = dense,

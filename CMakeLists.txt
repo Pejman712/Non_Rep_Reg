@@ -36,6 +36,17 @@ install(
     scripts/lio_gen_lio_tier1.py
     scripts/lio_gen_lio_tier2.py
     scripts/lio_gen_lio_tier3.py
+    scripts/lio_gen_lio_tier4.py
+    scripts/lio_gen_lio_intensity.py
+    scripts/lio_nrlio.py
+    scripts/lio_nrlio_optimized.py
+    scripts/lio_nrlio_optA.py
+    scripts/lio_nrlio_optB.py
+    scripts/lio_nrlio_op_den.py
+    scripts/lio_nrlio_plus.py
+    scripts/map_saver.py
+    scripts/mme.py
+    scripts/map_report.py
     scripts/degeneracy.py
     scripts/Pctools.py
     scripts/odom_to_tum.py

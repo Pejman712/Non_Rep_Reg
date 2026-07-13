@@ -112,3 +112,21 @@ lio_node:
     map_publish_max_points: 800000
     map_publish_every_n_scans: 1
 
+
+    # ── optional light prefilter (opt-in; default off) ──────────────────────
+    prefilter_enable: false      # true = light const-voxel + statistical-outlier cleanup before registration
+    prefilter_voxel: 0.05        # constant voxel size [m]; 0 = skip the voxel step
+    prefilter_sor: true          # statistical outlier removal
+    prefilter_sor_nb: 20         # neighbours for SOR
+    prefilter_sor_std: 2.0       # std-ratio (smaller = stricter)
+
+    # ── nrlio: gyro-adaptive coverage accumulation ─────────────────────────
+    nr_knee_ms: 300.0          # coverage knee -> 3-frame accumulation (Avia)
+    nr_accum_voxel: 0.12
+    nr_gyro_lo: 0.15             # rad/s: below -> accumulate to the knee
+    nr_gyro_hi: 1.0              # rad/s: above -> single scan (turns)
+    # ── stationarity gate (ZUPT): hold pose + zero velocity when still ──────
+    zupt_enable: true
+    zupt_gyro_thresh: 0.015      # rad/s (~0.9°/s)
+    zupt_acc_cv: 0.012           # |accel| coefficient of variation
+    zupt_min_count: 3            # consecutive still scans before engaging

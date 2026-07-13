@@ -125,6 +125,30 @@ def voxel_downsample(pts: np.ndarray, leaf: float) -> np.ndarray:
     return sums / counts
 
 
+def adaptive_ror(pts: np.ndarray, k: int = 6, tau: float = 0.06) -> np.ndarray:
+    """Density-adaptive radius outlier removal.
+
+    Drops a point if its mean distance to its k nearest neighbours, normalised by
+    its range from the sensor, exceeds `tau`.  Because the criterion is scale-free
+    (distance/range), it removes far isolated ghosts/flyers — e.g. TIER points that
+    leak through windows at 100-440 m, which are ~15-30x more isolated than the room
+    surface — while KEEPING sparse-but-real far walls, unlike global SOR.  Measured
+    on TIER: a τ≈0.06 cut removes ~90% of the ghosts and 0-1% of genuine points."""
+    n = pts.shape[0]
+    if n <= k + 1 or k < 1:
+        return pts
+    try:
+        from scipy.spatial import cKDTree
+    except Exception:
+        return pts
+    tree = cKDTree(pts)
+    dd, _ = tree.query(pts, k=k + 1)           # col 0 is the point itself
+    mnn = dd[:, 1:].mean(axis=1)
+    rng = np.linalg.norm(pts, axis=1)
+    keep = (mnn / np.maximum(rng, 0.1)) <= tau
+    return pts[keep]
+
+
 # =============================================================================
 # OctVoxMap (Python) — sub-voxel hash with 5-NN via cKDTree
 # =============================================================================
@@ -457,6 +481,23 @@ class SuperLioBase(Node):
         self.maxrange2 = float(gp("maxrange", 100.0).value) ** 2
         self.filter_rate = int(gp("filter_rate", 3).value)
         self.voxel_filter_size = float(gp("voxel_filter_size", 0.5).value)
+        # ── optional light prefilter (applied to the deskewed scan before the
+        #    per-variant downsample/registration).  Default OFF so it's opt-in.
+        self.prefilter_enable = bool(gp("prefilter_enable", False).value)
+        self.prefilter_voxel = float(gp("prefilter_voxel", 0.05).value)   # light const voxel [m]; 0=skip
+        # range crop — drops far ghosts (TIER window leakage at 100-440 m); 0=skip.
+        # Primary cleaner: on TIER the ghosts sit >100 m while the room is <12 m.
+        self.prefilter_range_max = float(gp("prefilter_range_max", 30.0).value)
+        # density-adaptive radius outlier removal (scale-free) — catches mid-range flyers.
+        self.prefilter_ror = bool(gp("prefilter_ror", True).value)
+        self.prefilter_ror_k = int(gp("prefilter_ror_k", 6).value)        # neighbours
+        self.prefilter_ror_tau = float(gp("prefilter_ror_tau", 0.06).value)  # mean-kNN-dist/range cut
+        # statistical outlier removal — DEFAULT OFF: proven the wrong tool on TIER
+        # (ghosts carry no noise flag and cluster; SOR keeps them and can gut real
+        # Horizon points).  Kept for A/B only; range-crop + ROR supersede it.
+        self.prefilter_sor = bool(gp("prefilter_sor", False).value)       # statistical outlier removal
+        self.prefilter_sor_nb = int(gp("prefilter_sor_nb", 20).value)     # neighbours
+        self.prefilter_sor_std = float(gp("prefilter_sor_std", 2.0).value)  # std-ratio (smaller = stricter)
         self.imu_ng = float(gp("imu_ng", 0.1).value)
         self.imu_na = float(gp("imu_na", 0.1).value)
         self.imu_nbg = float(gp("imu_nbg", 1e-4).value)
@@ -547,6 +588,7 @@ class SuperLioBase(Node):
         # downsampled body points of the current scan (reused by UpdateMap)
         self._pts_body = np.zeros((0, 3))
         self._pts_len = np.zeros(0)
+        self._scan_intensity = None       # per-point intensity, aligned with _scan_undistort
         self.last_conf = 0.0
         self.last_chi2 = 0.0
         self.last_accepted = 0
@@ -592,6 +634,18 @@ class SuperLioBase(Node):
             self._csv_fh = open(self.debug_csv, "w")
             self._csv_fh.write("scan,stamp,x,y,z,qx,qy,qz,qw\n")
             self._csv_fh.flush()
+
+        # per-scan processing-time log for EVERY regnonrep variant (the bench
+        # copies it per method for the proc-time comparison plot).  Fixed path
+        # alongside the live TUM; only one variant runs at a time in the bench.
+        self._proc_fh = None
+        if bool(gp("proc_csv_enable", True).value):
+            try:
+                self._proc_fh = open(
+                    "/u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/lio_odom.proc.csv", "w")
+                self._proc_fh.write("scan,proc_ms\n")
+            except OSError:
+                self._proc_fh = None
 
         self.get_logger().info(f"=== {self.NODE_NAME}  [{self.VARIANT_DESC}] ===")
         self.get_logger().info(f"  lidar={self.lidar_topic}  imu={self.imu_topic}")
@@ -684,6 +738,7 @@ class SuperLioBase(Node):
         x = col_f32(fo["x"].offset)
         y = col_f32(fo["y"].offset)
         z = col_f32(fo["z"].offset)
+        inten = col_f32(fo["intensity"].offset) if "intensity" in fo else None
 
         # per-point time → seconds relative to scan start.  Livox Avia/Horizon
         # publish uint32-ns 'offset_time' (already relative to scan start); the
@@ -699,6 +754,12 @@ class SuperLioBase(Node):
         elif "t" in fo:
             o = fo["t"].offset
             ot = raw[:, o:o + 4].copy().ravel().view(np.uint32).astype(np.float64) * 1e-9
+        elif "time" in fo:
+            # Velodyne-style / Unitree Unilidar L1: float32 per-point time in
+            # SECONDS (relative to scan start); rebase to the scan's first point.
+            o = fo["time"].offset
+            ot = raw[:, o:o + 4].copy().ravel().view(np.float32).astype(np.float64)
+            ot = ot - float(ot.min())
         else:
             return None
 
@@ -706,6 +767,8 @@ class SuperLioBase(Node):
         if self.filter_rate > 1:
             sel = np.arange(0, n, self.filter_rate)
             x, y, z, ot = x[sel], y[sel], z[sel], ot[sel]
+            if inten is not None:
+                inten = inten[sel]
 
         d2 = x * x + y * y + z * z
         good = np.isfinite(d2) & (d2 > self.blind2) & (d2 < self.maxrange2)
@@ -719,9 +782,11 @@ class SuperLioBase(Node):
             return None
         xyz = np.column_stack([x[good], y[good], z[good]])
         ot = ot[good]
+        inten = (inten[good] if inten is not None
+                 else np.zeros(xyz.shape[0], np.float32))
         start = ros_time_to_sec(msg.header.stamp)
         end = start + float(ot.max())
-        return (xyz, ot, start, end)
+        return (xyz, ot, start, end, inten)
 
     # ------------------------------------------------------------------
     # Processing worker — owns ALL heavy work (GICP/ESKF), running on its own
@@ -867,6 +932,7 @@ class SuperLioBase(Node):
         _t0 = time.perf_counter()   # DIAG: per-scan processing time
         self._skip_map = False      # default: insert this scan into the map
         self._propagation_undistort()
+        self._prefilter()
         self._downsample()
         self._register()            # <-- the only variant-specific step
         if self.force_z_zero:       # common 2-D constraint, applied post-update
@@ -877,6 +943,10 @@ class SuperLioBase(Node):
         proc_ms = (time.perf_counter() - _t0) * 1000.0
         self._proc_ms.append(proc_ms)
         self.last_proc_ms = proc_ms
+        if self._proc_fh is not None:
+            self._proc_fh.write(f"{self._scan_counter},{proc_ms:.2f}\n")
+            if self._scan_counter % 20 == 0:
+                self._proc_fh.flush()
         if self._scan_counter % 100 == 0:
             p = self.kf.p
             avg_ms = sum(self._proc_ms) / max(1, len(self._proc_ms))
@@ -919,7 +989,8 @@ class SuperLioBase(Node):
         R_inv = R_end.T
         p_end = kf.p
 
-        xyz, ot, start, end = self._meas_lidar
+        xyz, ot, start, end, inten = self._meas_lidar
+        self._scan_intensity = inten          # aligned with _scan_undistort (deskew keeps order)
         query = start + ot
         # points in imu frame (TLI) once
         imu_pts = (self.TLI_R @ xyz.T).T + self.TLI_t     # (N,3)
@@ -972,6 +1043,43 @@ class SuperLioBase(Node):
         if np.any(beyond):
             out[beyond] = imu_pts[beyond]
         self._scan_undistort = out
+
+    # ---- optional light prefilter (opt-in) ---------------------------
+    def _prefilter(self):
+        """Light cleanup of the deskewed scan BEFORE downsample/registration.
+        Opt-in via `prefilter_enable` (default off) so it can be A/B-compared.
+        Applied to `_scan_undistort`, so it feeds every downstream path (p2p, gicp,
+        map, gen_lio accumulation/features).  Stages, in order:
+          1. range crop        — drop far ghosts (TIER window leakage at 100-440 m)
+          2. adaptive ROR      — scale-free radius outlier removal for mid-range flyers
+          3. const voxel       — light density normalisation
+          4. SOR (default off) — legacy statistical outlier removal (A/B only)
+        ROR runs on the near-raw density (before the voxel step) so its τ stays
+        calibrated to the sensor's native point spacing."""
+        if not self.prefilter_enable:
+            return
+        pts = self._scan_undistort
+        if pts is None or pts.shape[0] < 30:
+            return
+        if self.prefilter_range_max > 0.0:                # 1. range crop
+            rng = np.linalg.norm(pts, axis=1)
+            pts = pts[rng <= self.prefilter_range_max]
+        if self.prefilter_ror and pts.shape[0] >= self.prefilter_ror_k + 2:   # 2. adaptive ROR
+            pts = adaptive_ror(pts, self.prefilter_ror_k, self.prefilter_ror_tau)
+        if self.prefilter_voxel > 0.0:                    # 3. const voxel
+            pts = voxel_downsample(pts, self.prefilter_voxel)
+        if self.prefilter_sor and pts.shape[0] >= self.prefilter_sor_nb:      # 4. SOR (opt-in)
+            try:
+                pc = o3d.geometry.PointCloud()
+                pc.points = o3d.utility.Vector3dVector(pts.astype(np.float64))
+                pc, _ = pc.remove_statistical_outlier(
+                    nb_neighbors=self.prefilter_sor_nb,
+                    std_ratio=self.prefilter_sor_std)
+                pts = np.asarray(pc.points)
+            except Exception:
+                pass
+        if pts.shape[0] >= 30:
+            self._scan_undistort = pts
 
     # ---- 2. Downsample -----------------------------------------------
     def _downsample(self):
@@ -1385,7 +1493,8 @@ class SuperLioBase(Node):
         if (self.publish_cloud and self.pub_cloud.get_subscription_count() > 0
                 and (self._scan_counter % max(self.pub_step, 1) == 0)):
             world = (R @ self._scan_undistort.T).T + p
-            self.pub_cloud.publish(self._make_cloud(world, stamp))
+            self.pub_cloud.publish(
+                self._make_cloud(world, stamp, getattr(self, "_scan_intensity", None)))
 
     @staticmethod
     def _to_ros_time(t_sec: float):
@@ -1395,24 +1504,39 @@ class SuperLioBase(Node):
         msg.nanosec = int((t_sec - msg.sec) * 1e9)
         return msg
 
-    def _make_cloud(self, pts: np.ndarray, stamp: float) -> PointCloud2:
+    def _make_cloud(self, pts: np.ndarray, stamp: float,
+                    intensity: np.ndarray = None) -> PointCloud2:
         header = Header()
         header.frame_id = "world"
         header.stamp = self._to_ros_time(stamp)
         msg = PointCloud2()
         msg.header = header
         msg.height = 1
-        msg.width = pts.shape[0]
+        n = pts.shape[0]
+        msg.width = n
+        # carry intensity iff it is aligned 1:1 with the (possibly prefiltered)
+        # scan — otherwise fall back to xyz-only so we never misattribute values.
+        has_i = intensity is not None and len(intensity) == n
         msg.fields = [
             PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
             PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
             PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
         ]
+        if has_i:
+            msg.fields.append(
+                PointField(name="intensity", offset=12, datatype=PointField.FLOAT32, count=1))
+        step = 16 if has_i else 12
         msg.is_bigendian = False
-        msg.point_step = 12
-        msg.row_step = 12 * pts.shape[0]
+        msg.point_step = step
+        msg.row_step = step * n
         msg.is_dense = True
-        msg.data = pts.astype(np.float32).tobytes()
+        if has_i:
+            arr = np.empty((n, 4), np.float32)
+            arr[:, :3] = pts
+            arr[:, 3] = np.asarray(intensity, np.float32)
+            msg.data = arr.tobytes()
+        else:
+            msg.data = pts.astype(np.float32).tobytes()
         return msg
 
     def shutdown(self):
@@ -1425,6 +1549,8 @@ class SuperLioBase(Node):
                 f"over {a.size} scans")
         if self._csv_fh is not None:
             self._csv_fh.close()
+        if getattr(self, "_proc_fh", None) is not None:
+            self._proc_fh.close()
 
 
 def run_node(node_cls):

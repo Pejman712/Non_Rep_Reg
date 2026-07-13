@@ -51,9 +51,12 @@ def read_tum(path):
             if len(parts) < 4:
                 continue
             try:
-                poses.append([float(x) for x in parts[:4]])  # t x y z
+                v = [float(x) for x in parts[:8]]        # t x y z qx qy qz qw
             except ValueError:
                 continue
+            while len(v) < 8:                            # pad missing quat -> identity
+                v.append(1.0 if len(v) == 7 else 0.0)
+            poses.append(v[:8])
     if not poses:
         raise ValueError(f"No valid poses in {path}")
     return np.array(poses)
@@ -67,7 +70,7 @@ def clip_to_duration(poses, duration):
 
 
 def center(xy):
-    return xy - xy[0]
+    return xy - xy[0]                                    # anchor each track at its own first pose (0,0)
 
 
 def main():

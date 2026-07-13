@@ -4,14 +4,14 @@ lio_node:
     # -------------------------
     # LiDAR input
     # -------------------------
-    lidar_topic: "/eve/lidar3d"
+    lidar_topic: "/unilidar/cloud"
     queue_size: 10
 
     # -------------------------
     # IMU input
     # -------------------------
     use_imu: true
-    imu_topic: "/eve/imu/data"
+    imu_topic: "/unilidar/imu"
     imu_gravity_mag: 9.81        # m/s², used for default g_eff before estimation
     imu_gravity_init_n: 400      # static IMU samples for gravity est. (1 s at 400 Hz)
     imu_gravity_z_down: false    # set true if sensor z-axis points down (auto-detected but can force)
@@ -23,7 +23,7 @@ lio_node:
     # -------------------------
     # Processing control
     # -------------------------
-    step_decimation: 2           # process every N-th scan
+    step_decimation: 1           # process every N-th scan
     max_scans: -1                # -1 = unlimited
 
     # -------------------------
@@ -36,7 +36,7 @@ lio_node:
     # -------------------------
     # Z handling (2-D mode)
     # -------------------------
-    force_z_zero: true           # flatten height; disable for 3-D operation
+    force_z_zero: false           # flatten height; disable for 3-D operation
 
     # -------------------------
     # Visualization
@@ -98,14 +98,9 @@ lio_node:
 
 
     # ── optional light prefilter (opt-in; default off) ──────────────────────
-    # Stages when enabled: range-crop → adaptive-ROR → const-voxel → SOR.
-    prefilter_enable: false      # true = clean the deskewed scan before registration
-    prefilter_range_max: 30.0    # drop points beyond this range [m] (TIER window ghosts sit >100 m); 0 = skip
-    prefilter_ror: true          # density-adaptive radius outlier removal (scale-free)
-    prefilter_ror_k: 6           # neighbours for adaptive ROR
-    prefilter_ror_tau: 0.06      # cut on mean-kNN-dist / range (smaller = stricter)
+    prefilter_enable: false      # true = light const-voxel + statistical-outlier cleanup before registration
     prefilter_voxel: 0.05        # constant voxel size [m]; 0 = skip the voxel step
-    prefilter_sor: false         # statistical outlier removal — OFF: wrong tool on TIER (see adaptive_ror)
+    prefilter_sor: true          # statistical outlier removal
     prefilter_sor_nb: 20         # neighbours for SOR
     prefilter_sor_std: 2.0       # std-ratio (smaller = stricter)
 

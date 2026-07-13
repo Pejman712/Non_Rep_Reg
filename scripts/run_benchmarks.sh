@@ -32,37 +32,61 @@
 # After editing config/*.yaml rebuild:  colcon build --packages-select regnonrep
 set -uo pipefail
 
+# Unbuffered node stdout so post-bag shutdown output (e.g. nrlio's loop-closure
+# back-end: keyframes / loop closures / [timing] / accumulation depth) is flushed
+# to the per-run log before the node is killed, instead of dying in the buffer.
+export PYTHONUNBUFFERED=1
+
 SCRIPT_DIR="$(realpath "$(dirname "$0")")"
 WS="$(realpath "${SCRIPT_DIR}/../../..")"
 TUM_LIVE="${WS}/src/regnonrep/tum/lio_odom.tum"
+MAP_LIVE="${WS}/src/regnonrep/tum/lio_map.pcd"   # map_saver checkpoint (opt-in --save-maps)
 PLOT_SCRIPT="${SCRIPT_DIR}/plot_tum.py"
 LOG_DIR="${SCRIPT_DIR}/../benchmark_results/$(date +%Y%m%d_%H%M%S)"
 
 ROOT_TIER="/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier"
 ROOT_IILAB="/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/iilab_benchmark"
+ROOT_CERN="/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/CERN"
 
 # ── methods: "name|executable" (all subclass lio_base.SuperLioBase) ───────────
+# Method names renamed to describe the method: <registration>[_<fusion>][_<degeneracy-strategy>].
+# (All gicp/ndt variants also use the non-repetitive init-guess predictor; the
+#  script files keep their original lio_*.py names.)  Old→new for reference:
+#   p2p→p2plane_base  nonrep_gicp→gicp  nonrep_ndt→ndt
+#   nonrep_gicp_p2p→gicp_p2plane  fused_gated→gicp_p2plane_gated
+#   fused_gated_ndt→ndt_p2plane_gated  fused_gated_p2p_gicp_ndt→gicp_ndt_p2plane_gated
+#   nonrep_fused_degen→gicp_p2plane_fused_degen  nonrep_gicp_p2p_degen→gicp_p2plane_degen_gyro
+#   degen_reuse→gicp_p2plane_degen_reuse  tsvd→gicp_degen_tsvd  pgo→gicp_p2plane_pgo
+#   gyro_gicp_p2p→gyro_gicp_p2plane  gyro_slowrot→gyro_gicp_slowrot
 ALL_METHODS=(
-    "p2p|lio_p2p.py"
-    "nonrep_gicp|lio_nonrep_gicp.py"
-    "nonrep_ndt|lio_nonrep_ndt.py"
-    "fused_gated_ndt|lio_fused_gated_ndt.py"
-    "fused_gated_p2p_gicp_ndt|lio_fused_gated_p2p_gicp_ndt.py"
-    "nonrep_gicp_p2p|lio_nonrep_gicp_p2p.py"
-    "nonrep_gicp_p2p_degen|lio_nonrep_gicp_p2p_degen.py"
-    "nonrep_fused_degen|lio_nonrep_fused_degen.py"
-    "fused_gated|lio_fused_gated.py"
+    "p2plane_base|lio_p2p.py"
+    "gicp|lio_nonrep_gicp.py"
+    "ndt|lio_nonrep_ndt.py"
+    "ndt_p2plane_gated|lio_fused_gated_ndt.py"
+    "gicp_ndt_p2plane_gated|lio_fused_gated_p2p_gicp_ndt.py"
+    "gicp_p2plane|lio_nonrep_gicp_p2p.py"
+    "gicp_p2plane_degen_gyro|lio_nonrep_gicp_p2p_degen.py"
+    "gicp_p2plane_fused_degen|lio_nonrep_fused_degen.py"
+    "gicp_p2plane_gated|lio_fused_gated.py"
     "gyro_gicp|lio_gyro_gicp.py"
     "gyro_gicp_degen|lio_gyro_gicp_degen.py"
-    "gyro_gicp_p2p|lio_gyro_gicp_p2p.py"
-    "gyro_slowrot|lio_gyro_slowrot.py"
-    "degen_reuse|lio_degen_reuse.py"
-    "tsvd|lio_tsvd.py"
-    "pgo|lio_pgo.py"
+    "gyro_gicp_p2plane|lio_gyro_gicp_p2p.py"
+    "gyro_gicp_slowrot|lio_gyro_slowrot.py"
+    "gicp_p2plane_degen_reuse|lio_degen_reuse.py"
+    "gicp_degen_tsvd|lio_tsvd.py"
+    "gicp_p2plane_pgo|lio_pgo.py"
     "gen_lio|lio_gen_lio.py"
     "gen_liotier1|lio_gen_lio_tier1.py"
     "gen_liotier2|lio_gen_lio_tier2.py"
     "gen_liotier3|lio_gen_lio_tier3.py"
+    "gen_liotier4|lio_gen_lio_tier4.py"
+    "gen_lio_intensity|lio_gen_lio_intensity.py"
+    "nrlio|lio_nrlio.py"
+    "nrlio_optimized|lio_nrlio_optimized.py"
+    "nrlio_optA|lio_nrlio_optA.py"
+    "nrlio_optB|lio_nrlio_optB.py"
+    "nrlio_op_den|lio_nrlio_op_den.py"
+    "nrlio_plus|lio_nrlio_plus.py"
 )
 
 # ── external LIO packages (run via `ros2 run`, fed the converter's
@@ -135,6 +159,7 @@ ext_spec() {
 RUN_TIER_AVIA=true
 RUN_TIER_HORIZEN=true
 RUN_IILAB=true
+RUN_CERN=true
 DURATION=0
 DRY_RUN=false
 METHOD_FILTER=""
@@ -142,6 +167,14 @@ SEQ_FILTER=""
 BAG_RATE_OVERRIDE=""
 WAIT_OVERRIDE=""
 START_OFFSET=5
+PREFILTER=""          # ""=use config default; on/off to override (regnonrep variants)
+PREFILTER_VOXEL=""
+PREFILTER_RANGE=""
+PREFILTER_ROR=""
+PREFILTER_ROR_TAU=""
+PREFILTER_SOR=""
+SAVE_MAPS="off"       # on = dump the accumulated LIO map to .pcd (regnonrep variants) for MapEval
+PARAMS_OVERLAY=""     # optional YAML overlay (param-sweep campaigns); overrides cfg
 
 # ── optional CPU pinning / priority (empty ⇒ unchanged behaviour) ──────────────
 # The livox→velodyne converter is single-threaded Python and is the throughput
@@ -164,10 +197,19 @@ for arg in "$@"; do
         --skip-tier-avia)    RUN_TIER_AVIA=false ;;
         --skip-tier-horizen) RUN_TIER_HORIZEN=false ;;
         --skip-iilab)        RUN_IILAB=false ;;
+        --skip-cern)         RUN_CERN=false ;;
         --duration=*)        DURATION="${arg#*=}" ;;
         --bag-rate=*)        BAG_RATE_OVERRIDE="${arg#*=}" ;;
         --post-wait=*)       WAIT_OVERRIDE="${arg#*=}" ;;
         --start-offset=*)    START_OFFSET="${arg#*=}" ;;
+        --prefilter=*)       PREFILTER="${arg#*=}" ;;
+        --prefilter-voxel=*) PREFILTER_VOXEL="${arg#*=}" ;;
+        --prefilter-range=*) PREFILTER_RANGE="${arg#*=}" ;;
+        --prefilter-ror=*)   PREFILTER_ROR="${arg#*=}" ;;
+        --prefilter-ror-tau=*) PREFILTER_ROR_TAU="${arg#*=}" ;;
+        --prefilter-sor=*)   PREFILTER_SOR="${arg#*=}" ;;
+        --save-maps=*)       SAVE_MAPS="${arg#*=}" ;;
+        --params-overlay=*)  PARAMS_OVERLAY="${arg#*=}" ;;
         --dry-run)           DRY_RUN=true ;;
         *) echo "Unknown flag: $arg" >&2; exit 1 ;;
     esac
@@ -195,14 +237,25 @@ fi
 RUNS=()
 $RUN_TIER_AVIA    && RUNS+=("tier_avia|Livox_avia|indoor1_avia" \
                             "tier_avia|Livox_avia|indoor2_avia" \
-                            "tier_avia|Livox_avia|indoor3_avia")
+                            "tier_avia|Livox_avia|indoor3_avia" \
+                            "tier_avia|Livox_avia|indoor6_avia")
 $RUN_TIER_HORIZEN && RUNS+=("tier_horizen|Livox_horizen|indoor1_horizen" \
                             "tier_horizen|Livox_horizen|indoor2_horizen" \
-                            "tier_horizen|Livox_horizen|indoor3_horizen")
+                            "tier_horizen|Livox_horizen|indoor3_horizen" \
+                            "tier_horizen|Livox_horizen|indoor6_horizen")
 $RUN_IILAB        && RUNS+=("iilab|livox_mid-360|nav_a_diff" \
                             "iilab|livox_mid-360|nav_a_omni" \
                             "iilab|livox_mid-360|loop" \
                             "iilab|livox_mid-360|slippage")
+$RUN_CERN         && RUNS+=("cern|unitree_unilidar_L1|BA6" \
+                            "cern|unitree_unilidar_L1|BA51" \
+                            "cern|unitree_unilidar_L1|BA52" \
+                            "cern|unitree_unilidar_L1|BA801" \
+                            "cern|unitree_unilidar_L1|BA802" \
+                            "cern|unitree_unilidar_L1|BA803" \
+                            "cern|unitree_unilidar_L1|927full" \
+                            "cern|unitree_unilidar_L1|charm" \
+                            "cern|unitree_unilidar_L1|Dumparea")
 
 # filter by sequence name if requested (comma list)
 if [[ -n "$SEQ_FILTER" ]]; then
@@ -234,6 +287,10 @@ configure_dataset() {
             DATASET_ROOT="$ROOT_IILAB" ; INSTALLED_CFG="${cfgdir}/lio.yaml"
             BAG_RATE=0.8 ; POST_BAG_WAIT=3 ; FRAME_CORRECT=true ; ALIGN_TS=false ; EVAL_KIND=iilabs3d
             IMU_SCALE=1.0 ;;                      # Xsens MTi-630 already m/s²
+        cern)
+            DATASET_ROOT="$ROOT_CERN" ; INSTALLED_CFG="${cfgdir}/lio_cern.yaml"
+            BAG_RATE=1.0 ; POST_BAG_WAIT=5 ; FRAME_CORRECT=false ; ALIGN_TS=true ; EVAL_KIND=evo
+            IMU_SCALE=1.0 ;;                      # Unitree Unilidar L1 IMU already m/s²
         *) echo "Unknown dataset: $ds" >&2; return 1 ;;
     esac
     [[ -n "$BAG_RATE_OVERRIDE" ]] && BAG_RATE="$BAG_RATE_OVERRIDE"
@@ -303,10 +360,19 @@ run_one() {  # $1 method_name  $2 executable  $3 dataset  $4 sensor  $5 sequence
     pkill -9 -f "ros2 bag play" 2>/dev/null || true
     pkill -9 -f "ros2 launch regnonrep" 2>/dev/null || true
     sleep 1
-    rm -f "$TUM_LIVE"
+    rm -f "$TUM_LIVE" "${TUM_LIVE%.tum}.ann.csv" "${TUM_LIVE%.tum}.proc.csv" "$MAP_LIVE"
 
     echo "  launching ${exe} …"
-    ros2 launch regnonrep lio_variant.launch.py "exe:=${exe}" "cfg:=${INSTALLED_CFG}" &
+    local largs=("exe:=${exe}" "cfg:=${INSTALLED_CFG}")
+    [[ -n "$PREFILTER" ]]         && largs+=("prefilter:=${PREFILTER}")
+    [[ -n "$PREFILTER_VOXEL" ]]   && largs+=("prefilter_voxel:=${PREFILTER_VOXEL}")
+    [[ -n "$PREFILTER_RANGE" ]]   && largs+=("prefilter_range:=${PREFILTER_RANGE}")
+    [[ -n "$PREFILTER_ROR" ]]     && largs+=("prefilter_ror:=${PREFILTER_ROR}")
+    [[ -n "$PREFILTER_ROR_TAU" ]] && largs+=("prefilter_ror_tau:=${PREFILTER_ROR_TAU}")
+    [[ -n "$PREFILTER_SOR" ]]     && largs+=("prefilter_sor:=${PREFILTER_SOR}")
+    [[ "$SAVE_MAPS" == "on" ]]    && largs+=("save_maps:=on" "map_out:=${MAP_LIVE}")
+    [[ -n "$PARAMS_OVERLAY" ]]  && largs+=("params_overlay:=${PARAMS_OVERLAY}")
+    ros2 launch regnonrep lio_variant.launch.py "${largs[@]}" &
     local algo_pid=$!
     sleep 3
 
@@ -326,6 +392,21 @@ run_one() {  # $1 method_name  $2 executable  $3 dataset  $4 sensor  $5 sequence
 
     if [[ ! -s "$TUM_LIVE" ]]; then echo "  ERROR: no TUM written (${method}/${seq})" >&2; return 1; fi
     cp "$TUM_LIVE" "$result_tum"
+    # per-pose mechanism annotations (nrlio family only) → alongside the TUM
+    local result_ann="${result_tum%.tum}.ann.csv"
+    rm -f "$result_ann"
+    [[ -f "${TUM_LIVE%.tum}.ann.csv" ]] && cp "${TUM_LIVE%.tum}.ann.csv" "$result_ann"
+    # per-scan processing time (every regnonrep variant) → alongside the TUM
+    local result_proc="${result_tum%.tum}.proc.csv"
+    rm -f "$result_proc"
+    [[ -f "${TUM_LIVE%.tum}.proc.csv" ]] && cp "${TUM_LIVE%.tum}.proc.csv" "$result_proc"
+    # accumulated LIO map (opt-in --save-maps) → alongside the TUM, for MapEval/MME
+    if [[ "$SAVE_MAPS" == "on" ]]; then
+        local result_map="${result_tum%.tum}.pcd"
+        rm -f "$result_map"
+        [[ -s "$MAP_LIVE" ]] && cp "$MAP_LIVE" "$result_map" \
+            && echo "  saved map → $(basename "$result_map")"
+    fi
     echo "  saved → $(basename "$result_tum")"
 
     if $ALIGN_TS && [[ -f "$gt_tum" ]]; then align_timestamps "$gt_tum" "$result_tum" "$START_OFFSET"; fi
@@ -351,7 +432,15 @@ run_one() {  # $1 method_name  $2 executable  $3 dataset  $4 sensor  $5 sequence
 
     echo "  [plot] route …"
     local gt_arg=() ; [[ -f "$gt_tum" ]] && gt_arg=(--gt "$gt_tum")
-    python3 "$PLOT_SCRIPT" --no-show "${gt_arg[@]}" "$result_tum" "$plot_png" || echo "      (plot failed)"
+    if [[ -f "${result_ann:-}" ]]; then
+        # nrlio family: annotated route (mode colours + ZUPT/degeneracy/clamp icons + strips)
+        python3 "${SCRIPT_DIR}/plot_annotated.py" --no-show "${gt_arg[@]}" \
+            --tum "$result_tum" --ann "$result_ann" --out "$plot_png" \
+            || python3 "$PLOT_SCRIPT" --no-show "${gt_arg[@]}" "$result_tum" "$plot_png" \
+            || echo "      (plot failed)"
+    else
+        python3 "$PLOT_SCRIPT" --no-show "${gt_arg[@]}" "$result_tum" "$plot_png" || echo "      (plot failed)"
+    fi
     return 0
 }
 
@@ -479,7 +568,15 @@ run_one_external() {  # $1 method  $2 dataset  $3 sensor  $4 sequence
     fi
     echo "  [plot] route …"
     local gt_arg=() ; [[ -f "$gt_tum" ]] && gt_arg=(--gt "$gt_tum")
-    python3 "$PLOT_SCRIPT" --no-show "${gt_arg[@]}" "$result_tum" "$plot_png" || echo "      (plot failed)"
+    if [[ -f "${result_ann:-}" ]]; then
+        # nrlio family: annotated route (mode colours + ZUPT/degeneracy/clamp icons + strips)
+        python3 "${SCRIPT_DIR}/plot_annotated.py" --no-show "${gt_arg[@]}" \
+            --tum "$result_tum" --ann "$result_ann" --out "$plot_png" \
+            || python3 "$PLOT_SCRIPT" --no-show "${gt_arg[@]}" "$result_tum" "$plot_png" \
+            || echo "      (plot failed)"
+    else
+        python3 "$PLOT_SCRIPT" --no-show "${gt_arg[@]}" "$result_tum" "$plot_png" || echo "      (plot failed)"
+    fi
     return 0
 }
 
@@ -532,11 +629,41 @@ for m in "${METHODS[@]}"; do
         if [[ -f "$src_tum" ]]; then
             cp -f "$src_tum" "${TRAJ_DIR}/${method}__${ds}_${seq}.tum"; NTRAJ=$(( NTRAJ + 1 ))
         fi
+        [[ -f "${base}/result_${method}.ann.csv" ]] && \
+            cp -f "${base}/result_${method}.ann.csv" "${TRAJ_DIR}/${method}__${ds}_${seq}.ann.csv"
+        [[ -f "${base}/result_${method}.proc.csv" ]] && \
+            cp -f "${base}/result_${method}.proc.csv" "${TRAJ_DIR}/${method}__${ds}_${seq}.proc.csv"
+        # saved map (opt-in --save-maps): collect .pcd + auto MME + 5 white-bg views
+        if [[ "$SAVE_MAPS" == "on" && -f "${base}/result_${method}.pcd" ]]; then
+            cp -f "${base}/result_${method}.pcd" "${TRAJ_DIR}/${method}__${ds}_${seq}.pcd"
+            python3 "${SCRIPT_DIR}/map_report.py" "${base}/result_${method}.pcd" \
+                --out-dir "$PLOTS_DIR" --tag "${method}__${ds}_${seq}" \
+                --method "$method" --dataset "$ds" --seq "$seq" \
+                --mme-csv "${LOG_DIR}/mme.csv" \
+                && echo "  map report (MME + 5 views) → ${method}__${ds}_${seq}"
+        fi
     done
 done
 echo ""
 echo "  saved ${NTRAJ} trajectory file(s) → ${TRAJ_DIR}"
 echo "  saved ${NPLOTS} route plot(s)     → ${PLOTS_DIR}"
+
+# ── per-sequence processing-time comparison plot (all methods) ────────────────
+declare -A SEEN_SEQ
+for entry in "${RUNS[@]}"; do
+    IFS='|' read -r ds sensor seq <<< "$entry"
+    key="${ds}|${seq}"
+    [[ -n "${SEEN_SEQ[$key]:-}" ]] && continue
+    SEEN_SEQ[$key]=1
+    configure_dataset "$ds" || continue
+    seqdir="${DATASET_ROOT}/${sensor}/${seq}"
+    if ls "${seqdir}"/result_*.proc.csv >/dev/null 2>&1; then
+        python3 "${SCRIPT_DIR}/plot_proctime.py" --dir "$seqdir" \
+            --out "${PLOTS_DIR}/zz_proctime__${ds}_${seq}.png" \
+            --title "Processing time — ${ds}/${seq}" 2>/dev/null \
+            && echo "  saved proc-time plot → zz_proctime__${ds}_${seq}.png"
+    fi
+done
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
