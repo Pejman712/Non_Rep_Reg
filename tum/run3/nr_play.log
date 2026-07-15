@@ -1,0 +1,8 @@
+stdin is not a terminal device. Keyboard handling disabled.[INFO] [1781524294.154477261] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia/indoor1_avia.db3' for READ_ONLY.
+[INFO] [1781524294.154514843] [rosbag2_player]: Set rate to 0.3
+[INFO] [1781524294.157409629] [rosbag2_player]: Adding keyboard callbacks.
+[INFO] [1781524294.157435024] [rosbag2_player]: Press SPACE for Pause/Resume
+[INFO] [1781524294.157439295] [rosbag2_player]: Press CURSOR_RIGHT for Play Next Message
+[INFO] [1781524294.157442772] [rosbag2_player]: Press CURSOR_UP for Increase Rate 10%
+[INFO] [1781524294.157445593] [rosbag2_player]: Press CURSOR_DOWN for Decrease Rate 10%
+[INFO] [1781524294.157665190] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia/indoor1_avia.db3' for READ_ONLY.

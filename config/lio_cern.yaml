@@ -1,0 +1,116 @@
+lio_node:
+  ros__parameters:
+
+    # -------------------------
+    # LiDAR input
+    # -------------------------
+    lidar_topic: "/unilidar/cloud"
+    queue_size: 10
+
+    # -------------------------
+    # IMU input
+    # -------------------------
+    use_imu: true
+    imu_topic: "/unilidar/imu"
+    imu_gravity_mag: 9.81        # m/s², used for default g_eff before estimation
+    imu_gravity_init_n: 400      # static IMU samples for gravity est. (1 s at 400 Hz)
+    imu_gravity_z_down: false    # set true if sensor z-axis points down (auto-detected but can force)
+    imu_use_accel: false         # false = gyro-only initial guess (more robust in degenerate cases)
+    imu_timeout_sec: 0.5         # fall back to identity init if IMU is this old [s]
+    imu_gyro_bias: [0.0, 0.0, 0.0]   # [rad/s] known gyro bias (set from calibration)
+    imu_accel_bias: [0.0, 0.0, 0.0]  # [m/s²] known accel bias
+
+    # -------------------------
+    # Processing control
+    # -------------------------
+    step_decimation: 1           # process every N-th scan
+    max_scans: -1                # -1 = unlimited
+
+    # -------------------------
+    # Scan accumulation
+    # -------------------------
+    accumulate_between_decimation: false
+    accumulate_voxel: 0.1        # voxel size for buffer downsample [m]
+    accumulate_max_points: 1500000
+
+    # -------------------------
+    # Z handling (2-D mode)
+    # -------------------------
+    force_z_zero: false           # flatten height; disable for 3-D operation
+
+    # -------------------------
+    # Visualization
+    # -------------------------
+    visualize: false
+    map_voxel: 0.1               # map downsample voxel [m]
+
+    # -------------------------
+    # iESKF noise parameters  — Xsens MTi-630 AHRS @ 400 Hz
+    # -------------------------
+    ieskf_sigma_gyro:     0.000122  # gyro ARW  0.007 °/s/√Hz → rad/s/√Hz
+    ieskf_sigma_accel:    0.000589  # accel VRW 60 µg/√Hz × 9.81
+    ieskf_sigma_bg:       0.0001    # gyro bias RW rate  [rad/s/√Hz]
+    ieskf_sigma_ba:       0.001     # accel bias RW rate [m/s²/√Hz]
+    ieskf_init_bg_cov:    0.02      # initial gyro bias var (8 °/s spec → 0.14² rad²/s²)
+    ieskf_init_ba_cov:    0.0001    # initial accel bias var [m²/s⁴]
+    ieskf_max_iters:      3         # SO(3) re-linearisation iterations per scan
+    ieskf_meas_noise_pos: 0.05      # GICP position measurement noise [m]
+    ieskf_meas_noise_rot: 0.01      # GICP rotation measurement noise [rad]
+
+    # -------------------------
+    # Initial-guess fusion weights (GICP seeding only — unchanged role)
+    # actual weight = base_weight × confidence, then normalised
+    # -------------------------
+    imu_base_weight: 0.3      # reduced — non-rep drives GICP seeding while IMU bias settles
+    nonrep_base_weight: 0.7   # non-rep dominates initial guess; IMU corrects via iESKF update
+
+    # -------------------------
+    # Degenerate-scan threshold
+    # Below this confidence the measurement noise is boosted ×20 so the
+    # iESKF trusts IMU propagation instead of a bad GICP result.
+    # -------------------------
+    gicp_min_conf: 0.25
+
+    # -------------------------
+    # GICP
+    # -------------------------
+    use_pctools_gicp: true       # uses Pctools.apply_gicp_with_init (small_gicp)
+    gicp_max_corr_distance: 2.0
+    gicp_voxel_size: 0.2
+    gicp_max_iterations: 50
+    gicp_submap_radius: 25.0
+    voxel_map_prune_radius: 80.0
+    voxel_map_max_voxels: 400000
+
+    # -------------------------
+    # Odometry output
+    # -------------------------
+    publish_odom: true
+    odom_topic: "/lio/odom"
+    publish_map: true
+    map_topic: "/lio/map"
+    publish_tf: false
+    map_frame: "map"
+    base_frame: "base_link"
+    map_publish_voxel: 0.15
+    map_publish_max_points: 800000
+    map_publish_every_n_scans: 1
+
+
+    # ── optional light prefilter (opt-in; default off) ──────────────────────
+    prefilter_enable: false      # true = light const-voxel + statistical-outlier cleanup before registration
+    prefilter_voxel: 0.05        # constant voxel size [m]; 0 = skip the voxel step
+    prefilter_sor: true          # statistical outlier removal
+    prefilter_sor_nb: 20         # neighbours for SOR
+    prefilter_sor_std: 2.0       # std-ratio (smaller = stricter)
+
+    # ── nrlio: gyro-adaptive coverage accumulation ─────────────────────────
+    nr_knee_ms: 200.0            # Mid-360 -> 2-frame accumulation
+    nr_accum_voxel: 0.12
+    nr_gyro_lo: 0.15
+    nr_gyro_hi: 1.0
+    # ── stationarity gate (ZUPT) ── NOTE iilab IMU is m/s² (Xsens); cv is unit-free
+    zupt_enable: true
+    zupt_gyro_thresh: 0.015
+    zupt_acc_cv: 0.012
+    zupt_min_count: 3

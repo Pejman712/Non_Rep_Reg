@@ -1,17 +1,17 @@
-my_node:
+non_rep_lidar:
   ros__parameters:
 
     # -------------------------
     # ROS / Input
     # -------------------------
-    #lidar_topic: "/unilidar/cloud"
-    lidar_topic: "/eve/lidar3d"
+    lidar_topic: "/utlidar/cloud"
+    #lidar_topic: "/eve/lidar3d"
     queue_size: 10
 
     # -------------------------
     # Processing control
     # -------------------------
-    step_decimation: 2             # Process every Nth scan
+    step_decimation: 2            # Process every Nth scan
     max_scans: -1                   # -1 = unlimited
 
     # -------------------------
@@ -40,7 +40,7 @@ my_node:
     # -------------------------
     # Visualization
     # -------------------------
-    visualize: true
+    visualize: false
     map_voxel: 0.1                # downsample accumulated map
 
     # -------------------------

@@ -1,0 +1,1 @@
+scan_num,stamp,x,y,z,yaw,imu_x,imu_y,imu_z,imu_yaw,gicp_dx,gicp_dy,gicp_dz,gicp_dyaw,gicp_conf,chi2,accepted,motion,n_map_vox,n_scan_pts,use_submap

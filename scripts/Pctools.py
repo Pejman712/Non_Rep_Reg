@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
 import numpy as np
 import open3d as o3d
 import os
@@ -102,31 +102,104 @@ def apply_gicp_wrapper(source_cloud, target_cloud, apply_gicp_func, voxel_size=0
     # Call your function
     return apply_gicp_func(source_wrapped, target_wrapped, voxel_size)
 
-def apply_gicp_direct(source_cloud, target_cloud, voxel_size=0.05):
+def apply_gicp_direct(source_cloud, target_cloud, voxel_size=0.05, num_threads=4):
     """
-    Direct implementation using small_gicp only
+    Direct GICP using small_gicp.
+
+    small_gicp.align(target, source) convention: first arg is target, second is source.
+    Called as apply_gicp_direct(prev, current) → target=prev, source=current.
+    Returns T_target_source = T_prev_current (maps current frame points to prev frame).
+
     Args:
-        source_cloud: Open3D PointCloud object
-        target_cloud: Open3D PointCloud object
-        voxel_size: voxel size for downsampling (unused but kept for compatibility)
+        source_cloud: Open3D PointCloud (previous scan — used as GICP target)
+        target_cloud: Open3D PointCloud (current scan  — used as GICP source)
+        voxel_size: unused, kept for API compatibility
+        num_threads: parallel KD-tree threads for small_gicp
     Returns:
-        4x4 transformation matrix
+        4×4 T_prev_current transformation matrix
     """
     import numpy as np
     import small_gicp
-    
+
     # Extract raw point data directly from Open3D PointClouds
     target_raw_numpy = np.asarray(target_cloud.points, dtype=np.float64)
     source_raw_numpy = np.asarray(source_cloud.points, dtype=np.float64)
-    
+
     # Check if clouds have points
     if len(source_raw_numpy) == 0 or len(target_raw_numpy) == 0:
         print("Warning: Empty point cloud detected, returning identity matrix")
         return np.eye(4)
-    
-    # Perform alignment using small_gicp
-    result = small_gicp.align(source_raw_numpy, target_raw_numpy)
+
+    # Perform alignment using small_gicp (target=prev/source_raw, source=current/target_raw)
+    result = small_gicp.align(source_raw_numpy, target_raw_numpy,
+                              num_threads=int(num_threads))
     return result.T_target_source
+
+def apply_gicp_with_init(source_cloud, target_cloud, init_T=None, voxel_size=0.05,
+                         num_threads=4):
+    """
+    GICP with an initial-guess transform (e.g. from IMU pre-integration).
+
+    small_gicp.align(target, source) convention: first arg is target, second is source.
+    Called as apply_gicp_with_init(prev, current, init_T) →
+      target=prev, source=current, init_T_target_source=init_T.
+    Returns T_target_source = T_prev_current (maps current frame to prev frame).
+
+    init_T must follow the same T_prev_current convention so that the initial
+    alignment matches the output convention.
+
+    Args:
+        source_cloud: Open3D PointCloud (previous scan — GICP target)
+        target_cloud: Open3D PointCloud (current scan  — GICP source)
+        init_T: 4×4 initial T_prev_current guess (identity if None)
+        voxel_size: unused, kept for API consistency
+        num_threads: parallel KD-tree threads for small_gicp
+    Returns:
+        4×4 T_prev_current transformation matrix
+    """
+    import numpy as np
+    import small_gicp
+
+    target_raw_numpy = np.asarray(target_cloud.points, dtype=np.float64)
+    source_raw_numpy = np.asarray(source_cloud.points, dtype=np.float64)
+
+    if len(source_raw_numpy) == 0 or len(target_raw_numpy) == 0:
+        print("Warning: Empty point cloud, returning identity")
+        return np.eye(4)
+
+    if init_T is None:
+        init_T = np.eye(4, dtype=np.float64)
+
+    result = small_gicp.align(source_raw_numpy, target_raw_numpy,
+                              init_T_target_source=init_T.astype(np.float64),
+                              num_threads=int(num_threads))
+    return result.T_target_source
+
+
+def apply_gicp_with_init_full(source_cloud, target_cloud, init_T=None, voxel_size=0.05,
+                               num_threads=4):
+    """Same as apply_gicp_with_init but returns (T_prev_current, H_6x6) where
+    H is the Gauss-Newton Hessian of the GICP cost (order: [rot(3), trans(3)]).
+    inv(H) approximates the 6-DOF pose covariance at the solution.
+    Returns (identity, None) on empty cloud."""
+    import numpy as np
+    import small_gicp
+
+    target_raw_numpy = np.asarray(target_cloud.points, dtype=np.float64)
+    source_raw_numpy = np.asarray(source_cloud.points, dtype=np.float64)
+
+    if len(source_raw_numpy) == 0 or len(target_raw_numpy) == 0:
+        return np.eye(4), None
+
+    if init_T is None:
+        init_T = np.eye(4, dtype=np.float64)
+
+    result = small_gicp.align(source_raw_numpy, target_raw_numpy,
+                              init_T_target_source=init_T.astype(np.float64),
+                              num_threads=int(num_threads))
+    H = np.array(result.H, dtype=np.float64)
+    return result.T_target_source, H
+
 
 def apply_gicp_open3d_fallback(source_cloud, target_cloud, voxel_size=0.05):
     """

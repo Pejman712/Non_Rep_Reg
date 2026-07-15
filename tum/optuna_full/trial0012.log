@@ -1,0 +1,29 @@
+[INFO] [1781533117.644432705] [lio_node_v2]: [debug] Writing per-scan CSV → /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/optuna_full/trial0012.csv
+/u/97/habibip1/unix/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+[INFO] [1781533118.127374855] [lio_node_v2]: Using Pctools.apply_gicp_with_init_full (H matrix)
+[INFO] [1781533118.137805535] [lio_node_v2]: === LIO Node (Non-Rep + iESKF Point-LIO style) ===
+[INFO] [1781533118.138262483] [lio_node_v2]: lidar=/avia/livox/points  use_imu=True
+[INFO] [1781533118.138673304] [lio_node_v2]: imu=/avia/livox/imu  accel_scale=9.81  σ_gyro=0.0019362537744433681  σ_accel=0.02770047394469448  σ_bg=0.00024216653449940533  σ_ba=0.00043954153303034024
+[INFO] [1781533118.139052775] [lio_node_v2]: IIR filter: 2nd-order Butterworth LP, cutoff=25 Hz, approx group_delay=20 ms (was 100 ms with 41-tap FIR), propagation at full 200 Hz
+[INFO] [1781533118.141624691] [lio_node_v2]: === LIO Node V2 (18-DOF IESKF18, Super-LIO ports) ===
+[INFO] [1781533118.142061775] [lio_node_v2]:   Gravity in state:           online estimation, norm-constrained
+[INFO] [1781533118.142486839] [lio_node_v2]:   Update form:                information-form (A = P⁻¹ + HᵀV⁻¹H)
+[INFO] [1781533118.142862261] [lio_node_v2]:   Propagation:                right-Jacobian J_r, midpoint integration
+[INFO] [1781533118.143234348] [lio_node_v2]:   level_init:                 True  (gravity-aligned world frame)
+[INFO] [1781533118.143618849] [lio_node_v2]:   imu_auto_scale:             True
+[INFO] [1781533118.144002931] [lio_node_v2]:   undistort_translation:      True
+[INFO] [1781533118.144367954] [lio_node_v2]:   init_g_cov:                 0.0017327814268057046
+[INFO] [1781533118.144747580] [lio_node_v2]:   ieskf_sigma_gyro/accel:     0.0019362537744433681 / 0.02770047394469448
+stdin is not a terminal device. Keyboard handling disabled.[INFO] [1781533118.222157464] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia/indoor1_avia.db3' for READ_ONLY.
+[INFO] [1781533118.222252110] [rosbag2_player]: Set rate to 0.3
+[INFO] [1781533118.228495866] [rosbag2_player]: Adding keyboard callbacks.
+[INFO] [1781533118.228549277] [rosbag2_player]: Press SPACE for Pause/Resume
+[INFO] [1781533118.228560900] [rosbag2_player]: Press CURSOR_RIGHT for Play Next Message
+[INFO] [1781533118.228571414] [rosbag2_player]: Press CURSOR_UP for Increase Rate 10%
+[INFO] [1781533118.228579663] [rosbag2_player]: Press CURSOR_DOWN for Decrease Rate 10%
+[INFO] [1781533118.229083092] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia/indoor1_avia.db3' for READ_ONLY.
+[INFO] [1781533121.251992446] [lio_node_v2]: Static init complete — g_world=[0.000, 0.000, 9.810] norm=9.810 m/s²  |  gyro_bias=[0.0012, 0.0002, 0.0007] rad/s
+[INFO] [1781533121.252648336] [lio_node_v2]: [level_init] World frame leveled (gravity-aligned, yaw removed); accel_scale=1.0058 — map restarted
+[WARN] [1781533228.093714428] [lio_node_v2]: Scan 319: GICP update REJECTED (χ²=2122.7 > 92.7) — conf=0.10, IMU holds
+[WARN] [1781533229.667009340] [lio_node_v2]: Scan 323: GICP update REJECTED (χ²=1628.0 > 92.7) — conf=0.50, IMU holds

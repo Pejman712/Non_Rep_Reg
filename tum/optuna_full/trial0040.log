@@ -1,0 +1,64 @@
+[INFO] [1781605628.606426153] [lio_node_v2]: [debug] Writing per-scan CSV → /u/97/habibip1/unix/ros2_ws/src/regnonrep/tum/optuna_full/trial0040.csv
+/u/97/habibip1/unix/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+[INFO] [1781605628.819275089] [lio_node_v2]: Using Pctools.apply_gicp_with_init_full (H matrix)
+[INFO] [1781605628.824186817] [lio_node_v2]: === LIO Node (Non-Rep + iESKF Point-LIO style) ===
+[INFO] [1781605628.824398999] [lio_node_v2]: lidar=/avia/livox/points  use_imu=True
+[INFO] [1781605628.824594329] [lio_node_v2]: imu=/avia/livox/imu  accel_scale=9.81  σ_gyro=0.0006061663009138461  σ_accel=0.05170058646631912  σ_bg=1.1018011623048922e-05  σ_ba=0.00024366577810964966
+[INFO] [1781605628.824771765] [lio_node_v2]: IIR filter: 2nd-order Butterworth LP, cutoff=25 Hz, approx group_delay=20 ms (was 100 ms with 41-tap FIR), propagation at full 200 Hz
+[INFO] [1781605628.825956071] [lio_node_v2]: === LIO Node V2 (18-DOF IESKF18, Super-LIO ports) ===
+[INFO] [1781605628.826158757] [lio_node_v2]:   Gravity in state:           online estimation, norm-constrained
+[INFO] [1781605628.826332568] [lio_node_v2]:   Update form:                information-form (A = P⁻¹ + HᵀV⁻¹H)
+[INFO] [1781605628.826510770] [lio_node_v2]:   Propagation:                right-Jacobian J_r, midpoint integration
+[INFO] [1781605628.826686835] [lio_node_v2]:   level_init:                 True  (gravity-aligned world frame)
+[INFO] [1781605628.826858793] [lio_node_v2]:   imu_auto_scale:             True
+[INFO] [1781605628.827026171] [lio_node_v2]:   undistort_translation:      True
+[INFO] [1781605628.827195374] [lio_node_v2]:   init_g_cov:                 0.0002512364723432172
+[INFO] [1781605628.827364780] [lio_node_v2]:   ieskf_sigma_gyro/accel:     0.0006061663009138461 / 0.05170058646631912
+stdin is not a terminal device. Keyboard handling disabled.[INFO] [1781605630.099765411] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia/indoor1_avia.db3' for READ_ONLY.
+[INFO] [1781605630.099827906] [rosbag2_player]: Set rate to 0.3
+[INFO] [1781605630.106646407] [rosbag2_player]: Adding keyboard callbacks.
+[INFO] [1781605630.106681238] [rosbag2_player]: Press SPACE for Pause/Resume
+[INFO] [1781605630.106686487] [rosbag2_player]: Press CURSOR_RIGHT for Play Next Message
+[INFO] [1781605630.106691036] [rosbag2_player]: Press CURSOR_UP for Increase Rate 10%
+[INFO] [1781605630.106694971] [rosbag2_player]: Press CURSOR_DOWN for Decrease Rate 10%
+[INFO] [1781605630.107008314] [rosbag2_storage]: Opened database '/u/97/habibip1/unix/point_cloud_registeration_benchmark/dataset/Tier/Livox_avia/indoor1_avia/indoor1_avia/indoor1_avia.db3' for READ_ONLY.
+[INFO] [1781605633.128350651] [lio_node_v2]: Static init complete — g_world=[0.000, 0.000, 9.810] norm=9.810 m/s²  |  gyro_bias=[0.0012, 0.0002, 0.0007] rad/s
+[INFO] [1781605633.128802677] [lio_node_v2]: [level_init] World frame leveled (gravity-aligned, yaw removed); accel_scale=1.0058 — map restarted
+[WARN] [1781605704.857605364] [lio_node_v2]: Scan 214: low GICP conf (0.10), χ²=0.0
+[WARN] [1781605716.542227808] [lio_node_v2]: Scan 249: low GICP conf (0.18), χ²=0.0
+[WARN] [1781605728.251321802] [lio_node_v2]: Scan 284: low GICP conf (0.10), χ²=0.0
+[WARN] [1781605733.250142302] [lio_node_v2]: Scan 299: low GICP conf (0.10), χ²=0.2
+[WARN] [1781605797.349446761] [lio_node_v2]: Scan 391: low GICP conf (0.16), χ²=0.7
+[WARN] [1781605799.772115501] [lio_node_v2]: Scan 393: low GICP conf (0.10), χ²=0.1
+[WARN] [1781605801.151144555] [lio_node_v2]: Scan 394: low GICP conf (0.10), χ²=0.1
+[WARN] [1781605802.258724963] [lio_node_v2]: Scan 395: low GICP conf (0.24), χ²=0.0
+[WARN] [1781605803.403168018] [lio_node_v2]: Scan 396: low GICP conf (0.10), χ²=0.2
+[WARN] [1781605804.517017584] [lio_node_v2]: Scan 397: low GICP conf (0.10), χ²=0.1
+[WARN] [1781605805.804414439] [lio_node_v2]: Scan 398: low GICP conf (0.18), χ²=1.1
+[WARN] [1781605807.966361256] [lio_node_v2]: Scan 400: low GICP conf (0.10), χ²=13.0
+[WARN] [1781605809.277924663] [lio_node_v2]: Scan 401: low GICP conf (0.19), χ²=20.7
+[WARN] [1781605871.222197436] [lio_node_v2]: Scan 484: low GICP conf (0.13), χ²=1.5
+[WARN] [1781605882.146634536] [lio_node_v2]: Scan 503: low GICP conf (0.10), χ²=3.4
+[WARN] [1781605898.443344300] [lio_node_v2]: Scan 513: low GICP conf (0.10), χ²=8.2
+[WARN] [1781605940.343716185] [lio_node_v2]: Scan 561: low GICP conf (0.10), χ²=0.9
+[WARN] [1781605944.399659942] [lio_node_v2]: Scan 566: low GICP conf (0.10), χ²=0.4
+[WARN] [1781605948.707399849] [lio_node_v2]: Scan 569: low GICP conf (0.28), χ²=0.1
+[WARN] [1781605950.113822196] [lio_node_v2]: Scan 570: low GICP conf (0.25), χ²=0.2
+[WARN] [1781605952.065969799] [lio_node_v2]: Scan 571: low GICP conf (0.21), χ²=0.8
+[WARN] [1781605953.754494912] [lio_node_v2]: Scan 572: low GICP conf (0.10), χ²=1.3
+[WARN] [1781605954.795146386] [lio_node_v2]: Scan 573: low GICP conf (0.10), χ²=2.4
+[WARN] [1781605956.806568512] [lio_node_v2]: Scan 575: low GICP conf (0.27), χ²=15.7
+[WARN] [1781605968.580780749] [lio_node_v2]: Scan 600: low GICP conf (0.28), χ²=0.1
+Traceback (most recent call last):
+  File "/u/97/habibip1/unix/ros2_ws/install/regnonrep/lib/regnonrep/ros_lio_v2.py", line 783, in <module>
+    main()
+  File "/u/97/habibip1/unix/ros2_ws/install/regnonrep/lib/regnonrep/ros_lio_v2.py", line 779, in main
+    rclpy.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 130, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/utilities.py", line 58, in shutdown
+    return context.shutdown()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 102, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:241
