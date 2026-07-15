@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>regnonrep · benchmark explorer</title>
+<style>
+:root{
+  --bg:#0d1418;--panel:#131f25;--panel2:#0f191e;--line:#213139;--line2:#2b404a;
+  --ink:#e8f0f3;--mut:#8ba3ac;--faint:#5f7580;--acc:#25c8d8;--acc-dim:#166f79;
+  --good:#39d98a;--mid:#e0b23a;--bad:#f0574a;--shadow:0 10px 30px -16px rgba(0,0,0,.7);
+}
+@media (prefers-color-scheme:light){:root{
+  --bg:#eef3f4;--panel:#fff;--panel2:#f4f8f9;--line:#dde7ea;--line2:#c9d8dd;
+  --ink:#12242b;--mut:#51666f;--faint:#7f939c;--acc:#0d8b9a;--acc-dim:#8fd9e1;
+  --good:#1f9e5f;--mid:#a9791a;--bad:#cf3d31;--shadow:0 10px 30px -18px rgba(20,40,50,.25);}}
+:root[data-theme="dark"]{--bg:#0d1418;--panel:#131f25;--panel2:#0f191e;--line:#213139;--line2:#2b404a;--ink:#e8f0f3;--mut:#8ba3ac;--faint:#5f7580;--acc:#25c8d8;--acc-dim:#166f79;--good:#39d98a;--mid:#e0b23a;--bad:#f0574a}
+:root[data-theme="light"]{--bg:#eef3f4;--panel:#fff;--panel2:#f4f8f9;--line:#dde7ea;--line2:#c9d8dd;--ink:#12242b;--mut:#51666f;--faint:#7f939c;--acc:#0d8b9a;--acc-dim:#8fd9e1;--good:#1f9e5f;--mid:#a9791a;--bad:#cf3d31}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+header{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:11px 20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.brand{font-weight:660;letter-spacing:.2px}.brand .d{color:var(--acc)}
+header .sp{margin-left:auto}
+.btn{font:inherit;font-size:13px;color:var(--mut);background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{color:var(--ink);border-color:var(--acc-dim)}.btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+main{max-width:1400px;margin:0 auto;padding:20px}
+#drop{border:2px dashed var(--line2);border-radius:16px;padding:64px 24px;text-align:center;color:var(--mut);transition:.15s;background:var(--panel2);cursor:pointer}
+#drop.over{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 8%,var(--panel2));color:var(--ink)}
+#drop h1{font-size:22px;margin:.2em 0;color:var(--ink);font-weight:640}
+#drop .big{font-size:40px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:6px 0 20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.card .k{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+.card .v{font-family:ui-monospace,monospace;font-size:24px;font-weight:600;margin-top:5px}
+section{margin:26px 0}
+h2{font-size:18px;font-weight:640;margin:0 0 10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+h2 .n{font-family:ui-monospace,monospace;color:var(--acc);font-size:13px}
+.ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px;color:var(--mut)}
+select,.chk{font:inherit;font-size:13px}
+select{background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:7px;padding:5px 8px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-family:ui-monospace,monospace;font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line2);background:var(--panel2);color:var(--mut);cursor:pointer;user-select:none}
+.chip.on{color:var(--ink);border-color:var(--acc-dim);background:color-mix(in srgb,var(--acc) 12%,transparent)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:7px 11px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+thead th{position:sticky;top:52px;background:var(--panel2);color:var(--faint);font-weight:600;font-size:11px;letter-spacing:.04em;text-transform:uppercase;z-index:2}
+th.l,td.l{text-align:left}
+tbody tr:hover td{background:color-mix(in srgb,var(--acc) 6%,transparent)}
+td.num{font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums}
+td.best{font-weight:700}
+td.best::after{content:"★";color:var(--good);font-size:9px;vertical-align:super;margin-left:2px}
+td.div{color:var(--bad);font-style:italic}
+.dscell{color:var(--mut);font-family:ui-monospace,monospace}
+.seqn{font-family:ui-monospace,monospace;color:var(--ink)}
+.dshdr td{background:var(--panel2);color:var(--acc);font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.05em;text-transform:uppercase;font-weight:600}
+.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px}
+figure img{width:100%;border-radius:6px;background:#fff;cursor:zoom-in;display:block}
+figcaption{font-size:11px;color:var(--mut);font-family:ui-monospace,monospace;margin-top:6px;word-break:break-all}
+.lb{position:fixed;inset:0;background:rgba(3,7,9,.92);display:none;align-items:center;justify-content:center;z-index:60;padding:24px;cursor:zoom-out}
+.lb.on{display:flex}.lb img{max-width:96vw;max-height:92vh;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.note{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--mid);border-radius:9px;padding:10px 14px;color:var(--mut);font-size:12.5px;margin-top:10px}
+.note b{color:var(--ink)}
+.err{color:var(--bad);padding:14px}
+.hide{display:none}
+.legend{font-size:11.5px;color:var(--faint);display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.sw{width:26px;height:9px;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:4px}
+</style>
+</head>
+<body>
+
+
+<header>
+  <span class="brand">regnonrep <span class="d">·</span> benchmark explorer</span>
+  <span class="sp"></span>
+  <button class="btn" id="reload" hidden onclick="reset()">↻ new file</button>
+  <button class="btn" id="tgl">◐ theme</button>
+</header>
+<main>
+  <div id="drop" tabindex="0" role="button" aria-label="Drop a benchmark zip here">
+    <div class="big">📦</div>
+    <h1>Drop a webbench results <span class="mono">.zip</span> here</h1>
+    <div>or click to choose — the one from <b>“⬇ download all”</b>. Everything is parsed in your browser; nothing is uploaded.</div>
+    <div id="status" class="mono" style="margin-top:14px;color:var(--acc)"></div>
+  </div>
+  <input type="file" id="file" accept=".zip" class="hide">
+  <div id="app" class="hide"></div>
+</main>
+<div class="lb" id="lb" onclick="this.classList.remove('on')"><img id="lbi" alt=""></div>
+
+<script>
+/* ---------- theme ---------- */
+const root=document.documentElement;
+document.getElementById('tgl').onclick=()=>{const cur=root.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');root.setAttribute('data-theme',cur==='dark'?'light':'dark');};
+function zoom(src){document.getElementById('lbi').src=src;document.getElementById('lb').classList.add('on');}
+addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('lb').classList.remove('on');});
+
+/* ---------- minimal ZIP reader (central directory + raw-deflate via DecompressionStream) ---------- */
+async function inflate(bytes,method){
+  if(method===0) return bytes;
+  const ds=new DecompressionStream('deflate-raw');
+  const stream=new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+function findEOCD(dv){
+  for(let i=dv.byteLength-22;i>=0;i--){ if(dv.getUint32(i,true)===0x06054b50) return i; }
+  return -1;
+}
+async function readZip(buf,onprogress){
+  const dv=new DataView(buf), u8=new Uint8Array(buf);
+  const eocd=findEOCD(dv); if(eocd<0) throw new Error("Not a valid .zip (no end record)");
+  const total=dv.getUint16(eocd+10,true); let off=dv.getUint32(eocd+16,true);
+  const out=[];
+  for(let e=0;e<total;e++){
+    if(dv.getUint32(off,true)!==0x02014b50) break;
+    const method=dv.getUint16(off+10,true);
+    const csize=dv.getUint32(off+20,true);
+    const fnLen=dv.getUint16(off+28,true), exLen=dv.getUint16(off+30,true), cmLen=dv.getUint16(off+32,true);
+    const lho=dv.getUint32(off+42,true);
+    const name=new TextDecoder().decode(u8.subarray(off+46,off+46+fnLen));
+    // local header → data
+    const lfn=dv.getUint16(lho+26,true), lex=dv.getUint16(lho+28,true);
+    const dstart=lho+30+lfn+lex;
+    const comp=u8.subarray(dstart,dstart+csize);
+    out.push({name,method,comp});
+    off+=46+fnLen+exLen+cmLen;
+    if(onprogress&&e%20===0) onprogress(e,total);
+  }
+  return out;
+}
+function parseCSV(text){
+  const lines=text.replace(/\r/g,'').split('\n').filter(l=>l.length);
+  if(!lines.length) return [];
+  const head=lines[0].split(',');
+  return lines.slice(1).map(l=>{const c=l.split(','),o={};head.forEach((h,i)=>o[h]=c[i]);return o;});
+}
+
+/* ---------- load ---------- */
+const drop=document.getElementById('drop'),fileIn=document.getElementById('file');
+drop.onclick=()=>fileIn.click();
+drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')fileIn.click();};
+fileIn.onchange=()=>fileIn.files[0]&&load(fileIn.files[0]);
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0]; if(f) load(f);});
+const st=document.getElementById('status');
+function reset(){location.reload();}
+
+let DATA=null;
+async function load(file){
+  st.textContent='reading '+file.name+' …';
+  try{
+    const buf=await file.arrayBuffer();
+    const entries=await readZip(buf,(e,t)=>st.textContent=`scanning entries ${e}/${t} …`);
+    const csv={}, imgs=[];
+    let done=0;
+    for(const en of entries){
+      const base=en.name.split('/').pop();
+      if(/\.(csv)$/i.test(base)){
+        const bytes=await inflate(en.comp,en.method);
+        csv[base]=parseCSV(new TextDecoder().decode(bytes));
+      }else if(/\.png$/i.test(base)){
+        const bytes=await inflate(en.comp,en.method);
+        const url=URL.createObjectURL(new Blob([bytes],{type:'image/png'}));
+        imgs.push({name:base,url});
+      }
+      if(++done%15===0) st.textContent=`decoding ${done}/${entries.length} …`;
+    }
+    DATA={csv,imgs};
+    render();
+  }catch(err){ st.innerHTML='<span style="color:var(--bad)">'+err.message+'</span>'; console.error(err); }
+}
+
+/* ---------- metric config ---------- */
+const METRICS=[
+  {id:'ate_se3',src:'metrics',label:'ATE·SE3 [m]',short:'ATE·SE3',fb:'rmse',lower:true,dp:3},
+  {id:'rmse',src:'metrics',label:'ATE·orig [m]',short:'ATE·orig',lower:true,dp:2},
+  {id:'are_deg',src:'metrics',label:'rotation ATE [°]',short:'rot°',lower:true,dp:1},
+  {id:'rpe_1m',src:'metrics',label:'RPE / 1m [m]',short:'RPE/1m',lower:true,dp:3},
+  {id:'proc_ms',src:'diag',label:'proc time [ms/scan]',short:'proc ms',lower:true,dp:1},
+  {id:'mme',src:'mme',label:'map MME (lower=sharper)',short:'MME',lower:true,dp:2},
+];
+let curMetric='ate_se3', curView='all', hidden=new Set();
+
+function num(x){const v=parseFloat(x);return isFinite(v)?v:null;}
+function grade(v,lo,hi,lower){ // 0=best .. 1=worst
+  if(v==null||hi===lo) return null;
+  let t=(v-lo)/(hi-lo); if(!lower) t=1-t; return t;
+}
+function gradeColor(t){ // green→amber→red
+  if(t==null) return 'transparent';
+  const g=[57,217,138],m=[224,178,58],b=[240,87,74];
+  const mix=(a,c,f)=>a.map((x,i)=>Math.round(x+(c[i]-x)*f));
+  const rgb = t<0.5? mix(g,m,t*2) : mix(m,b,(t-0.5)*2);
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.16)`;
+}
+
+function render(){
+  document.getElementById('drop').classList.add('hide');
+  document.getElementById('reload').hidden=false;
+  const app=document.getElementById('app'); app.classList.remove('hide');
+  const met=DATA.csv['metrics.csv']||[], dia=DATA.csv['diagnostics.csv']||[], mme=DATA.csv['mme.csv']||[];
+  // methods + sequences (dataset/seq)
+  const methods=[...new Set(met.map(r=>r.method))];
+  // order: nrlio_* first, then others
+  methods.sort((a,b)=>(a.startsWith('nrlio')?0:1)-(b.startsWith('nrlio')?0:1)||a.localeCompare(b));
+  const seqKeys=[]; const seqOf={};
+  met.forEach(r=>{const k=r.dataset+'|'+r.seq; if(!(k in seqOf)){seqOf[k]={ds:r.dataset,seq:r.seq};seqKeys.push(k);}});
+  // lookups
+  const L={metrics:{},diag:{},mme:{}};
+  met.forEach(r=>L.metrics[r.method+'|'+r.dataset+'|'+r.seq]=r);
+  dia.forEach(r=>L.diag[r.method+'|'+r.seq]=r);        // diag seq = ds_seq
+  mme.forEach(r=>L.mme[r.method+'|'+r.dataset+'|'+r.seq]=r);
+  DATA._={methods,seqKeys,seqOf,L,met,dia,mme};
+
+  let h=`<div class="cards">
+    <div class="card"><div class="k">Methods</div><div class="v">${methods.length}</div></div>
+    <div class="card"><div class="k">Sequences</div><div class="v">${seqKeys.length}</div></div>
+    <div class="card"><div class="k">Rows</div><div class="v">${met.length}</div></div>
+    <div class="card"><div class="k">Figures</div><div class="v">${DATA.imgs.length}</div></div>
+  </div>`;
+
+  // metric + method controls
+  h+=`<section><h2><span class="n">01</span>Comparison — all methods</h2>
+    <div class="ctl">
+      <span class="chips" id="vchips">
+        <span class="chip ${curView==='all'?'on':''}" data-v="all">all metrics · per sequence</span>
+        <span class="chip ${curView==='metric'?'on':''}" data-v="metric">one metric · compare methods</span>
+      </span>
+      <label id="mlab"${curView==='all'?' style="display:none"':''}>metric <select id="msel">${METRICS.map(m=>`<option value="${m.id}"${m.id===curMetric?' selected':''}>${m.label}</option>`).join('')}</select></label>
+      <span>methods:</span><span class="chips" id="mchips"></span></div>
+    <div id="tbl"></div>
+    <div class="legend"><span>cell colour = rank within row</span>
+      <span><span class="sw" style="background:linear-gradient(90deg,rgba(57,217,138,.5),rgba(224,178,58,.5),rgba(240,87,74,.5))"></span>best → worst</span>
+      <span>★ = best · <i>italic red</i> = diverged (≥100)</span></div>
+    <div class="note">Read <b>ATE·SE3</b> as the real accuracy. On TIER the <b>ATE·orig / rotation</b> columns are inflated by a ~110° dataset frame offset (not drift). iilab has only a single ATE (its own evaluator) → shown under ATE·SE3. Toggle off obviously-broken methods (e.g. a method reading 0.000 everywhere) with the chips.</div>
+  </section>`;
+
+  h+=`<section><h2><span class="n">02</span>Figures</h2>
+    <div class="ctl"><span class="chips" id="fchips"></span></div>
+    <div class="gal" id="gal"></div></section>`;
+  app.innerHTML=h;
+
+  document.getElementById('msel').onchange=e=>{curMetric=e.target.value;draw();};
+  document.querySelectorAll('#vchips .chip').forEach(c=>c.onclick=()=>{
+    curView=c.dataset.v;
+    document.querySelectorAll('#vchips .chip').forEach(x=>x.classList.toggle('on',x.dataset.v===curView));
+    document.getElementById('mlab').style.display=curView==='all'?'none':'';
+    draw();
+  });
+  drawChips(); draw(); drawFigures();
+}
+function draw(){ curView==='all'?drawAllMetrics():drawTable(); }
+
+function drawChips(){
+  const {methods}=DATA._;
+  document.getElementById('mchips').innerHTML=methods.map(m=>
+    `<span class="chip ${hidden.has(m)?'':'on'}" data-m="${m}">${m}</span>`).join('');
+  document.querySelectorAll('#mchips .chip').forEach(c=>c.onclick=()=>{
+    const m=c.dataset.m; hidden.has(m)?hidden.delete(m):hidden.add(m);
+    c.classList.toggle('on'); draw();
+  });
+}
+
+function cellValM(method,ds,seq,m){
+  let r,v=null;
+  if(m.src==='metrics'){ r=DATA._.L.metrics[method+'|'+ds+'|'+seq]; if(r){v=num(r[m.id]); if(v==null&&m.fb)v=num(r[m.fb]);} }
+  else if(m.src==='diag'){ r=DATA._.L.diag[method+'|'+ds+'_'+seq]; if(r)v=num(r[m.id]); }
+  else if(m.src==='mme'){ r=DATA._.L.mme[method+'|'+ds+'|'+seq]; if(r)v=num(r[m.id]); }
+  return v;
+}
+const cellVal=(method,ds,seq)=>cellValM(method,ds,seq,METRICS.find(x=>x.id===curMetric));
+
+function fmtCell(v,m,best){
+  if(v==null) return `<td class="num dscell">–</td>`;
+  if(v>=100) return `<td class="num div">${v>=1e3?'DIV':v.toFixed(1)}</td>`;
+  return `<td class="num${v===best?' best':''}">${v.toFixed(m.dp)}</td>`;
+}
+function drawAllMetrics(){
+  const {seqKeys,seqOf,methods}=DATA._;
+  const show=methods.filter(x=>!hidden.has(x));
+  let h=''; let lastDs=null;
+  for(const k of seqKeys){
+    const {ds,seq}=seqOf[k];
+    if(ds!==lastDs){ h+=`<h3 style="margin:18px 0 6px;font-size:13px;color:var(--acc);font-family:ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase">${ds}</h3>`; lastDs=ds; }
+    // best per metric among shown, valid methods
+    const best={};
+    METRICS.forEach(m=>{const vv=show.map(x=>cellValM(x,ds,seq,m)).filter(v=>v!=null&&v<100);
+      best[m.id]=vv.length?(m.lower?Math.min(...vv):Math.max(...vv)):null;});
+    h+=`<div class="scroll" style="margin-bottom:12px"><table><thead><tr><th class="l">${seq}</th>${METRICS.map(m=>`<th title="${m.label}">${m.short}</th>`).join('')}</tr></thead><tbody>`;
+    show.forEach(x=>{
+      h+=`<tr><td class="l ${x.startsWith('nrlio')?'seqn':'dscell'}">${x}</td>`;
+      METRICS.forEach(m=>{ h+=fmtCell(cellValM(x,ds,seq,m),m,best[m.id]); });
+      h+='</tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  document.getElementById('tbl').innerHTML=h||'<span class="dscell">no metrics</span>';
+}
+function drawTable(){
+  const {methods,seqKeys,seqOf}=DATA._;
+  const m=METRICS.find(x=>x.id===curMetric);
+  const show=methods.filter(x=>!hidden.has(x));
+  let h=`<div class="scroll"><table><thead><tr><th class="l">dataset / sequence</th>${show.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>`;
+  let lastDs=null;
+  for(const k of seqKeys){
+    const {ds,seq}=seqOf[k];
+    if(ds!==lastDs){ h+=`<tr class="dshdr"><td class="l" colspan="${show.length+1}">${ds}</td></tr>`; lastDs=ds; }
+    const vals=show.map(x=>cellVal(x,ds,seq));
+    const valid=vals.filter(v=>v!=null&&v<100);
+    const lo=Math.min(...valid), hi=Math.max(...valid);
+    const best=valid.length?(m.lower?lo:hi):null;
+    h+=`<tr><td class="l seqn">${seq}</td>`;
+    vals.forEach(v=>{
+      if(v==null){h+=`<td class="num dscell">–</td>`;return;}
+      if(v>=100){h+=`<td class="num div">${v>=1e3?'DIV':v.toFixed(1)}</td>`;return;}
+      const t=grade(v,lo,hi,m.lower), bg=gradeColor(t);
+      const isBest=(v===best);
+      h+=`<td class="num${isBest?' best':''}" style="background:${bg}">${v.toFixed(m.dp)}</td>`;
+    });
+    h+='</tr>';
+  }
+  h+='</tbody></table></div>';
+  document.getElementById('tbl').innerHTML=h;
+}
+
+/* ---------- figures ---------- */
+function figType(name){
+  if(name.startsWith('zz_overlay__')) return 'overlay';
+  if(name.startsWith('zz_proctime__')) return 'proctime';
+  if(name.startsWith('zzmap_')) return 'map';
+  return 'trajectory';
+}
+const FTYPES=[['overlay','Comparison overlays'],['trajectory','Per-method routes'],['proctime','Proc-time'],['map','Map views']];
+let curFType='overlay';
+function drawFigures(){
+  const present=new Set(DATA.imgs.map(i=>figType(i.name)));
+  const types=FTYPES.filter(t=>present.has(t[0]));
+  if(!types.length){document.getElementById('gal').innerHTML='<span class="dscell">no figures in this zip</span>';document.getElementById('fchips').innerHTML='';return;}
+  if(!present.has(curFType)) curFType=types[0][0];
+  document.getElementById('fchips').innerHTML=types.map(t=>
+    `<span class="chip ${t[0]===curFType?'on':''}" data-t="${t[0]}">${t[1]} (${DATA.imgs.filter(i=>figType(i.name)===t[0]).length})</span>`).join('');
+  document.querySelectorAll('#fchips .chip').forEach(c=>c.onclick=()=>{curFType=c.dataset.t;drawFigures();});
+  const list=DATA.imgs.filter(i=>figType(i.name)===curFType).sort((a,b)=>a.name.localeCompare(b.name));
+  document.getElementById('gal').innerHTML=list.map(i=>{
+    const cap=i.name.replace(/\.png$/,'').replace(/^zz_overlay__/,'').replace(/^zz_proctime__/,'').replace(/^zzmap_/,'');
+    return `<figure><img loading="lazy" src="${i.url}" alt="${cap}" onclick="zoom('${i.url}')"><figcaption>${cap}</figcaption></figure>`;
+  }).join('');
+}
+</script>
+
+</body>
+</html>
