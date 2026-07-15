@@ -45,12 +45,14 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line2);b
 .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow)}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
 th,td{padding:7px 11px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
-thead th{position:sticky;top:52px;background:var(--panel2);color:var(--faint);font-weight:600;font-size:11px;letter-spacing:.04em;text-transform:uppercase;z-index:2}
+thead th{background:var(--panel2);color:var(--faint);font-weight:600;font-size:11px;letter-spacing:.04em;text-transform:uppercase}
 th.l,td.l{text-align:left}
 tbody tr:hover td{background:color-mix(in srgb,var(--acc) 6%,transparent)}
 td.num{font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums}
 td.best{font-weight:700}
 td.best::after{content:"★";color:var(--good);font-size:9px;vertical-align:super;margin-left:2px}
+td.r1{background:color-mix(in srgb,var(--good) 22%,transparent);color:var(--good)}
+td.r2{background:color-mix(in srgb,var(--mid) 20%,transparent);color:var(--mid)}
 td.div{color:var(--bad);font-style:italic}
 .dscell{color:var(--mut);font-family:ui-monospace,monospace}
 .seqn{font-family:ui-monospace,monospace;color:var(--ink)}
@@ -232,9 +234,10 @@ function render(){
       <label id="mlab"${curView==='all'?' style="display:none"':''}>metric <select id="msel">${METRICS.map(m=>`<option value="${m.id}"${m.id===curMetric?' selected':''}>${m.label}</option>`).join('')}</select></label>
       <span>methods:</span><span class="chips" id="mchips"></span></div>
     <div id="tbl"></div>
-    <div class="legend"><span>cell colour = rank within row</span>
-      <span><span class="sw" style="background:linear-gradient(90deg,rgba(57,217,138,.5),rgba(224,178,58,.5),rgba(240,87,74,.5))"></span>best → worst</span>
-      <span>★ = best · <i>italic red</i> = diverged (≥100)</span></div>
+    <div class="legend">
+      <span><span class="sw" style="background:color-mix(in srgb,var(--good) 40%,transparent)"></span>lowest = best ★</span>
+      <span><span class="sw" style="background:color-mix(in srgb,var(--mid) 40%,transparent)"></span>2nd lowest</span>
+      <span><i style="color:var(--bad)">italic red</i> = diverged (≥100)</span></div>
     <div class="note">Read <b>ATE·SE3</b> as the real accuracy. On TIER the <b>ATE·orig / rotation</b> columns are inflated by a ~110° dataset frame offset (not drift). iilab has only a single ATE (its own evaluator) → shown under ATE·SE3. Toggle off obviously-broken methods (e.g. a method reading 0.000 everywhere) with the chips.</div>
   </section>`;
 
@@ -273,10 +276,18 @@ function cellValM(method,ds,seq,m){
 }
 const cellVal=(method,ds,seq)=>cellValM(method,ds,seq,METRICS.find(x=>x.id===curMetric));
 
-function fmtCell(v,m,best){
+// lowest = green (best, ★), 2nd-lowest distinct = yellow  (all metrics: lower is better)
+function gy(vals){
+  const u=[...new Set(vals.filter(v=>v!=null&&v<100))].sort((a,b)=>a-b);
+  return {green:u.length?u[0]:null, yellow:u.length>1?u[1]:null};
+}
+function fmtCell(v,m,green,yellow){
   if(v==null) return `<td class="num dscell">–</td>`;
   if(v>=100) return `<td class="num div">${v>=1e3?'DIV':v.toFixed(1)}</td>`;
-  return `<td class="num${v===best?' best':''}">${v.toFixed(m.dp)}</td>`;
+  let cls='num';
+  if(green!=null&&v===green) cls+=' r1 best';
+  else if(yellow!=null&&v===yellow) cls+=' r2';
+  return `<td class="${cls}">${v.toFixed(m.dp)}</td>`;
 }
 function drawAllMetrics(){
   const {seqKeys,seqOf,methods}=DATA._;
@@ -285,14 +296,13 @@ function drawAllMetrics(){
   for(const k of seqKeys){
     const {ds,seq}=seqOf[k];
     if(ds!==lastDs){ h+=`<h3 style="margin:18px 0 6px;font-size:13px;color:var(--acc);font-family:ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase">${ds}</h3>`; lastDs=ds; }
-    // best per metric among shown, valid methods
-    const best={};
-    METRICS.forEach(m=>{const vv=show.map(x=>cellValM(x,ds,seq,m)).filter(v=>v!=null&&v<100);
-      best[m.id]=vv.length?(m.lower?Math.min(...vv):Math.max(...vv)):null;});
+    // green(1st)/yellow(2nd) per metric column, among shown methods
+    const rank={};
+    METRICS.forEach(m=>{ rank[m.id]=gy(show.map(x=>cellValM(x,ds,seq,m))); });
     h+=`<div class="scroll" style="margin-bottom:12px"><table><thead><tr><th class="l">${seq}</th>${METRICS.map(m=>`<th title="${m.label}">${m.short}</th>`).join('')}</tr></thead><tbody>`;
     show.forEach(x=>{
       h+=`<tr><td class="l ${x.startsWith('nrlio')?'seqn':'dscell'}">${x}</td>`;
-      METRICS.forEach(m=>{ h+=fmtCell(cellValM(x,ds,seq,m),m,best[m.id]); });
+      METRICS.forEach(m=>{ const g=rank[m.id]; h+=fmtCell(cellValM(x,ds,seq,m),m,g.green,g.yellow); });
       h+='</tr>';
     });
     h+='</tbody></table></div>';
@@ -309,17 +319,9 @@ function drawTable(){
     const {ds,seq}=seqOf[k];
     if(ds!==lastDs){ h+=`<tr class="dshdr"><td class="l" colspan="${show.length+1}">${ds}</td></tr>`; lastDs=ds; }
     const vals=show.map(x=>cellVal(x,ds,seq));
-    const valid=vals.filter(v=>v!=null&&v<100);
-    const lo=Math.min(...valid), hi=Math.max(...valid);
-    const best=valid.length?(m.lower?lo:hi):null;
+    const {green,yellow}=gy(vals);
     h+=`<tr><td class="l seqn">${seq}</td>`;
-    vals.forEach(v=>{
-      if(v==null){h+=`<td class="num dscell">–</td>`;return;}
-      if(v>=100){h+=`<td class="num div">${v>=1e3?'DIV':v.toFixed(1)}</td>`;return;}
-      const t=grade(v,lo,hi,m.lower), bg=gradeColor(t);
-      const isBest=(v===best);
-      h+=`<td class="num${isBest?' best':''}" style="background:${bg}">${v.toFixed(m.dp)}</td>`;
-    });
+    vals.forEach(v=>{ h+=fmtCell(v,m,green,yellow); });
     h+='</tr>';
   }
   h+='</tbody></table></div>';
